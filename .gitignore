@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Runtime request/response/outbox/log state.
+requests/
+responses/
+outbox/
+logs/
+*.jsonl
+*.ndjson
