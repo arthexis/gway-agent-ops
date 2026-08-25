@@ -9,12 +9,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_expected_sources_are_packaged():
     assert (ROOT / "scripts/gway/agent_alert.py").exists()
-    assert (ROOT / "scripts/gway/workgroup-log.sh").exists()
+    assert (ROOT / "scripts/gway/operator-log.sh").exists()
     assert (ROOT / "bin/agent-alert").exists()
 
 
 def test_shell_helpers_parse():
-    for script in (ROOT / "bin/agent-alert", ROOT / "scripts/gway/workgroup-log.sh"):
+    for script in (ROOT / "bin/agent-alert", ROOT / "scripts/gway/operator-log.sh"):
         result = subprocess.run(["bash", "-n", str(script)], check=False, capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
 
