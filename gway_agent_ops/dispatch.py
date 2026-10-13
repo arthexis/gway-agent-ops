@@ -61,10 +61,21 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
     at = timestamp(at)
     directory = Path(state_dir or DEFAULT_STATE)
     _private_directory(directory)
+    requests = directory / "requests"
+    _private_directory(requests)
+    gate_path = requests / "submission.lock"
+    if gate_path.is_symlink():
+        raise ValueError("unsafe submission lock")
+    gate_fd = os.open(gate_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     lock_path = directory / "execution.lock"
     if lock_path.is_symlink():
         raise ValueError("unsafe lock path")
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(gate_fd, fcntl.LOCK_EX)
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except BaseException:
+        os.close(gate_fd)
+        raise
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
@@ -73,6 +84,12 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Busy("an agent invocation is already in progress") from exc
+        from .nonblocking import _outstanding_request
+        import hashlib
+        digest = hashlib.sha256((issue + "\n" + at).encode()).hexdigest()
+        active = _outstanding_request(requests, directory, digest)
+        if active is not None:
+            raise Busy("an unresolved issue request already owns the slot")
         log = directory / "accepted.jsonl"
         if log.is_symlink():
             raise ValueError("unsafe dispatch journal")
@@ -95,6 +112,8 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
         except BaseException:
             # fdopen takes ownership of fd; already closed after context exit.
             raise
+        fcntl.flock(gate_fd, fcntl.LOCK_UN)
         yield record
     finally:
         os.close(descriptor)
+        os.close(gate_fd)
