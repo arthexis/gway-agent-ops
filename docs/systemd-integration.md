@@ -26,3 +26,28 @@ This is a first integration slice. The probe does **not yet** exercise
 `agent submit`/`agent release` or a restart/race against the real systemd
 unit; those require an isolated injection seam so the test cannot start Codex.
 Until those tests exist, this is not full end-to-end admission verification.
+
+## Ansible verification after an approved deployment
+
+`ansible/verify.yml` is the post-install verification entrypoint. The
+approved Gway Remote deployment should call it only after installing a pinned,
+reviewed Agent Ops revision. The playbook does not perform installation itself.
+
+Inventory must contain a `gway_agent_ops` host group. The default checkout is
+`/opt/gway-agent-ops` and the default account is `arthe`; override both
+using inventory variables if necessary. The target account must have a running
+systemd user manager and its runtime bus at `/run/user/<uid>/bus`.
+
+```sh
+ansible-playbook -i INVENTORY ansible/verify.yml
+```
+
+The playbook resolves the target UID, switches to that unprivileged user,
+runs the probe with `--json`, and fails the deployment verification on any
+nonzero exit or non-passing JSON result. It is read-only with respect to the
+installed Agent Ops revision; the only runtime changes are isolated transient
+test units and temporary controller state.
+
+**Integration not yet wired:** Gway Remote must explicitly invoke this
+playbook in its approved deployment workflow and record the result. Do not
+claim automatic deployment until that Remote change is merged and exercised.
