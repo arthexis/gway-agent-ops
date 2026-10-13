@@ -12,6 +12,7 @@ from pathlib import Path
 from .dispatch import Busy, Duplicate, admission, timestamp
 from .github_issues import IssueRejected, resolve
 from .runtime import runtime_context
+from .reporting import enqueue, recover, flush
 
 
 class ExecutionError(RuntimeError):
@@ -54,6 +55,9 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
     )
     digest = hashlib.sha256((issue["title"] + "\n" + issue["body"]).encode()).hexdigest()
     with admission(key, at, state_dir=state_dir) as accepted:
+        # The lock is held while reconciling old crashes. Current dispatch
+        # must never be interpreted as interrupted while still running.
+        recover(state_dir=state_dir, active=(key, accepted["at"]))
         try:
             process = runner(
                 ["codex", "exec", "--sandbox", "workspace-write", "-"],
@@ -61,9 +65,14 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
                 text=True, capture_output=True, timeout=timeout_seconds, check=False,
             )
         except subprocess.TimeoutExpired as exc:
+            enqueue(key, accepted["at"], state_dir=state_dir)
             raise ExecutionError("codex_timeout") from exc
         except OSError as exc:
+            enqueue(key, accepted["at"], state_dir=state_dir)
             raise ExecutionError("codex_unavailable") from exc
+        enqueue(key, accepted["at"], state_dir=state_dir,
+                status="finished" if process.returncode == 0 else "codex_failed",
+                exit_code=process.returncode)
         return {"issue": key, "at": accepted["at"], "url": issue["url"],
                 "issue_revision": "sha256:" + digest,
                 "comment_baseline": issue["comments"],
