@@ -100,7 +100,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_release_is_idempotent_and_allows_new_issue_only(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \\
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
              patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
@@ -131,7 +131,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_failed_release_keeps_reservation_after_restart(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \\
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
              patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
