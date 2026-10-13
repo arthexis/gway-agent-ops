@@ -4,6 +4,7 @@ import re
 import sys
 from .contracts import envelope, json_line, status_data
 from . import __version__
+from .adopt import inspect
 
 REF = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -51,6 +52,16 @@ def main(argv=None):
             parse_issue_ref(args.ref, args.repo)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "adopt" and args.check:
+        data = inspect()
+        if args.json:
+            print(json_line(envelope("adopt", "ok", data=data)))
+        else:
+            print("Codex: " + ("available" if data["codex_executable"]["available"] else "unavailable"))
+            print("Configuration: " + ("readable" if data["config"]["readable"] else "unavailable"))
+            print("Authentication: " + data["authentication"]["status"])
+            print("Adoption: read-only check; no changes made")
+        return 0
     if args.json:
         print(json_line(envelope(
             args.command, "not_implemented",
