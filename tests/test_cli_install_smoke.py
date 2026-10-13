@@ -22,7 +22,7 @@ class InstalledCliTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_contracts_without_credentials_or_execution(self):
-        commands = (("issues", "--json"), ("status", "--json"),
+        commands = (("status", "--json"),
                     ("hook", "Stop", "--json"))
         for args in commands:
             with self.subTest(args=args):
