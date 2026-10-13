@@ -78,3 +78,19 @@ No environment API key is persisted. Identical files are left intact;
 different existing files require explicit `--force`. Run
 `agent adopt --check` for metadata-only inspection. Never run adoption
 as root to provision another user's credentials.
+
+## A2.3: future runtime environment
+
+`gway_agent_ops.runtime.runtime_context()` validates the adopted Codex
+configuration directory and prepares an environment for future `agent issue`
+execution. It requires private owner-owned directories and configuration,
+rejects symlinked authentication, and passes only a short allowlist of
+noncredential environment variables while setting `CODEX_HOME` to the
+**copied agent configuration**. It performs no subprocess launch, network
+access or automatic identity provisioning.
+
+This is an environment boundary, **not an operating-system sandbox**:
+invocations retain the permissions of the Linux account launching them.
+The CLI/adopter should be invoked under the intended GWAY-001 user; Remote
+must not receive credential files or inherit arbitrary command execution.
+A2.4 will validate this environment end-to-end before Codex execution lands.
