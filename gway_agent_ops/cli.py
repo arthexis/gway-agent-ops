@@ -5,6 +5,7 @@ import sys
 from .contracts import envelope, json_line, status_data
 from . import __version__
 from .adopt import inspect, adopt as adopt_config
+from .verify import verify
 
 REF = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -36,7 +37,9 @@ def build_parser():
     for name in ("issues", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     adopt = sub.add_parser("adopt")
-    adopt.add_argument("--check", action="store_true")
+    modes = adopt.add_mutually_exclusive_group()
+    modes.add_argument("--check", action="store_true")
+    modes.add_argument("--verify", action="store_true")
     adopt.add_argument("--include-auth", action="store_true")
     adopt.add_argument("--force", action="store_true")
     adopt.add_argument("--json", action="store_true")
@@ -54,6 +57,18 @@ def main(argv=None):
             parse_issue_ref(args.ref, args.repo)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "adopt" and args.verify:
+        result = verify()
+        if args.json:
+            print(json_line(envelope("adopt", "ok" if result["ready"] else "unavailable",
+                                     data=result,
+                                     error=None if result["ready"] else
+                                     {"code": "not_ready", "message": "Agent configuration is not ready"})))
+        else:
+            print("Agent runtime: " + ("ready" if result["ready"] else "not ready"))
+            if not result["ready"]:
+                print("Problems: " + ", ".join(result["issues"]))
+        return 0 if result["ready"] else 1
     if args.command == "adopt" and args.check:
         data = inspect()
         if args.json:
