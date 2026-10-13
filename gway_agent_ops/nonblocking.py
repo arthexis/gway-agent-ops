@@ -63,6 +63,17 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         if marker.exists():
             return {"issue": ref, "at": at, "state": "already_requested"}
+        execution_lock = root / "execution.lock"
+        if execution_lock.is_symlink():
+            raise ValueError("unsafe execution lock")
+        execution_fd = os.open(execution_lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            try:
+                fcntl.flock(execution_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return {"issue": ref, "at": at, "state": "busy"}
+        finally:
+            os.close(execution_fd)
         active = _outstanding_request(requests, root, digest)
         if active is not None:
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
