@@ -22,9 +22,7 @@ user**, collecting its JSON and exit status. No interactive/manual test is
 needed when Remote has a working user-systemd session. Do not execute as root,
 open a new remote shell interface, or grant arbitrary command execution.
 
-This is a first integration slice. The probe does **not yet** exercise
-`agent submit`/`agent release` or a restart/race against the real systemd
-unit; those require an isolated injection seam so the test cannot start Codex.
+The probe exercises real cross-process controller admission and terminal-evidence\nreopening with temporary state. It does **not yet** exercise the production\n`agent submit`/`agent release` against a real systemd unit, or a real process\ncrash/restart race; those require an isolated execution seam that cannot launch\nCodex. These gaps must not be represented as passing checks.
 Until those tests exist, this is not full end-to-end admission verification.
 
 ## Ansible verification after an approved deployment
