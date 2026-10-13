@@ -57,14 +57,14 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
-            "--", str(Path(__file__).resolve().parents[1] / "agent-nonexistent"),
+            "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
         import shutil
         executable = shutil.which("agent")
         if not executable or not Path(executable).is_file():
             return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
-        command[-1:] = [executable, "issue", ref, "--at", at, "--json"]
+        command.extend([executable, "issue", ref, "--at", at, "--json"])
         try:
             result = runner(command, capture_output=True, text=True,
                             check=False, timeout=15)
