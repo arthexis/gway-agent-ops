@@ -6,6 +6,7 @@ from .contracts import envelope, json_line, status_data
 from . import __version__
 from .adopt import inspect, adopt as adopt_config
 from .verify import verify
+from .dispatch import timestamp
 
 REF = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -32,7 +33,7 @@ def build_parser():
     issue = sub.add_parser("issue", help="Invoke an agent for a GitHub issue")
     issue.add_argument("ref")
     issue.add_argument("--repo")
-    issue.add_argument("--resend", action="store_true")
+    issue.add_argument("--at", metavar="TIMESTAMP", help="Frozen ISO-8601 dispatch timestamp for idempotent retries")
     issue.add_argument("--json", action="store_true", help="Machine-readable response")
     for name in ("issues", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
@@ -55,6 +56,8 @@ def main(argv=None):
     if args.command == "issue":
         try:
             parse_issue_ref(args.ref, args.repo)
+            if args.at is not None:
+                timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
     if args.command == "adopt" and args.verify:
