@@ -19,7 +19,7 @@ from .github_issues import resolve
 from .observation import observe
 
 
-_TERMINAL = frozenset({"finished", "codex_failed", "interrupted"})
+_TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
 
 
 def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str | None:
@@ -99,5 +99,77 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
         return {"issue": ref, "at": at,
                 "state": "requested" if result.returncode == 0 else "launch_unconfirmed"}
+    finally:
+        os.close(descriptor)
+
+
+def release(ref: str, at: str, *, state_dir: Path | None = None,
+            runner=subprocess.run) -> dict:
+    """Administratively retire a request after stopping its systemd unit.
+
+    No automatic retry. A new submission requires a different timestamp.
+    Fail closed if the unit cannot be confirmed inactive or execution is locked.
+    """
+    if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
+        raise ValueError("invalid_issue_ref")
+    if not isinstance(at, str):
+        raise ValueError("invalid_timestamp")
+    at = timestamp(at)
+    root = Path(state_dir or DEFAULT_STATE)
+    _private_directory(root)
+    requests = root / "requests"
+    _private_directory(requests)
+    digest = hashlib.sha256((ref + "\\n" + at).encode()).hexdigest()
+    marker = requests / (digest + ".json")
+    if marker.is_symlink() or not marker.exists():
+        raise ValueError("request_not_found")
+    lock = requests / "submission.lock"
+    if lock.is_symlink():
+        raise ValueError("unsafe_dispatch_path")
+    descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        if record.get("issue") != ref or record.get("at") != at:
+            raise ValueError("invalid request journal")
+        if observe(ref, at, state_dir=root)["state"] in _TERMINAL:
+            return {"issue": ref, "at": at, "state": "already_terminal"}
+        execution_lock = root / "execution.lock"
+        if execution_lock.is_symlink():
+            raise ValueError("unsafe execution lock")
+        execution_fd = os.open(execution_lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            try:
+                fcntl.flock(execution_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise ValueError("execution_active") from exc
+            unit = "gway-agent-" + digest[:32] + ".service"
+            # Stop first: a successful is-active check alone would race a pending start.
+            stopped = runner(["systemctl", "--user", "stop", unit],
+                             capture_output=True, text=True, check=False, timeout=10)
+            if stopped.returncode != 0:
+                raise ValueError("unit_stop_unconfirmed")
+            checked = runner(["systemctl", "--user", "is-active", unit],
+                             capture_output=True, text=True, check=False, timeout=10)
+            if checked.returncode == 0 or checked.stdout.strip() not in ("inactive", "failed", "unknown"):
+                raise ValueError("unit_inactive_unconfirmed")
+            released = root / "released"
+            _private_directory(released)
+            path = released / (digest + ".json")
+            if path.is_symlink():
+                raise ValueError("unsafe release path")
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump({"issue": ref, "at": at, "state": "released"}, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            directory = os.open(released, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+            return {"issue": ref, "at": at, "state": "released"}
+        finally:
+            os.close(execution_fd)
     finally:
         os.close(descriptor)
