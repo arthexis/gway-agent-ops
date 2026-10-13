@@ -8,6 +8,7 @@ from pathlib import Path
 from gway_agent_ops.dispatch import admission
 from gway_agent_ops.issue_views import list_issues
 from gway_agent_ops.github_issues import IssueRejected
+from gway_agent_ops.reporting import _key
 
 
 class IssueProjectionTests(unittest.TestCase):
@@ -48,6 +49,9 @@ class IssueProjectionTests(unittest.TestCase):
         self.assertEqual(attended[0]["state"], "attended")
         self.assertEqual(attended[0]["comments"], 5)
         self.assertEqual(attended[0]["url"], "https://github.com/arthexis/example/issues/12")
+        (self.state / "delivered").mkdir()
+        (self.state / "delivered" / (_key(self.repo + "#12", "2026-10-13T01:00:00.000000Z") + ".json")).write_text(
+            json.dumps({"status": "finished", "exit_code": 0}))
         with admission(self.repo + "#12", "2026-10-13T02:00:00Z",
                        state_dir=self.state, comment_baseline=5):
             pass
