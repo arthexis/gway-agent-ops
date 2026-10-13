@@ -22,7 +22,6 @@ class ObservationTests(unittest.TestCase):
             self.assertEqual(result["state"], "finished")
             self.assertEqual(result["exit_code"], 0)
             from gway_agent_ops.reporting import _key
-            import json
             outbox = root / "outbox" / (_key(issue, "2026-10-13T15:00:00.000000Z") + ".json")
             delivered = root / "delivered"
             delivered.mkdir()
