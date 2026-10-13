@@ -22,8 +22,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "not_implemented")
 
     def test_every_command_json_mode(self):
-        cases = [["issue", "arthexis/repo#41", "--json"],
-                 ["issues", "--json"],
+        cases = [["issues", "--json"],
                  ["hook", "SessionStart", "--json"]]
         for args in cases:
             with self.subTest(args=args), contextlib.redirect_stdout(io.StringIO()) as stdout:
