@@ -20,6 +20,22 @@ def status(*, state_dir: Path | None = None) -> dict:
         raise ValueError("unsafe requests directory")
     if requests.exists() and not requests.is_dir():
         raise ValueError("invalid requests directory")
+    # A submission in its atomic reservation window must not look idle.
+    gate = requests / "submission.lock"
+    if gate.is_symlink():
+        raise ValueError("unsafe submission lock")
+    gate_busy = False
+    if gate.exists():
+        gate_fd = os.open(gate, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            try:
+                fcntl.flock(gate_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                gate_busy = True
+            else:
+                fcntl.flock(gate_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(gate_fd)
     outstanding = []
     if requests.exists():
         for path in sorted(requests.glob("*.json")):
@@ -56,5 +72,8 @@ def status(*, state_dir: Path | None = None) -> dict:
         return {"state": state, "available": False, "active_issue": ref, "active_at": at}
     if running:
         return {"state": "running", "available": False,
+                "active_issue": None, "active_at": None}
+    if gate_busy:
+        return {"state": "uncertain", "available": False,
                 "active_issue": None, "active_at": None}
     return idle
