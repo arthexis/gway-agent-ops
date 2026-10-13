@@ -98,7 +98,7 @@ def verify() -> dict:
             release_root = root / "release-controller"
             release_root.mkdir(mode=0o700)
             ref, at = "arthexis/probe#3", timestamp("2026-10-01T00:02:00Z")
-            digest = hashlib.sha256((ref + "\\n" + at).encode()).hexdigest()
+            digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
             requests = release_root / "requests"
             requests.mkdir(mode=0o700)
             (requests / (digest + ".json")).write_text(
