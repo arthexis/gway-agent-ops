@@ -119,7 +119,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
     _private_directory(root)
     requests = root / "requests"
     _private_directory(requests)
-    digest = hashlib.sha256((ref + "\\n" + at).encode()).hexdigest()
+    digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
     marker = requests / (digest + ".json")
     if marker.is_symlink() or not marker.exists():
         raise ValueError("request_not_found")
