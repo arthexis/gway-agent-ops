@@ -110,3 +110,24 @@ structurally ready; exit 1 indicates a missing/unsafe/invalid configuration.
 Atomic adoption commits remain authoritative even if a previous process left
 an incomplete `.agent-adopt-*.tmp` file. Verification ignores such temporary
 files and never deletes them automatically.
+
+## A3.2 — Timestamp-addressed invocation admission
+
+The future `agent issue REF` command accepts `--at` with an ISO-8601
+timestamp containing an explicit timezone. Android should freeze the value
+when the operator presses Send and reuse it only for delivery retries.
+A deliberate second Send uses a fresh timestamp. No `--resend` or UUID.
+
+`gway_agent_ops.dispatch.admission(issue, at)` provides the building block:
+a nonblocking cross-process `flock` single-execution lock and an fsynced,
+append-only journal keyed by the pair `(issue, UTC timestamp)`. Duplicates
+are rejected even after process restart; another issue with the same
+timestamp is a distinct identity. The lock is held for the full context,
+so future execution code must keep that context open through Codex
+completion. It does not queue work. Timestamps are normalized to UTC, and
+values more than five minutes in the future are rejected.
+
+**A3.1 trust checking is not yet integrated.** The CLI remains a deliberate
+`not_implemented` stub: no user-provided reference can write dispatch state
+or launch Codex. Once trusted issue resolution is wired, the validated
+canonical issue key will be supplied to the admission component.
