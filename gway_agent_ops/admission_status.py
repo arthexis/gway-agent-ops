@@ -83,7 +83,7 @@ def status(*, state_dir: Path | None = None) -> dict:
             os.close(fd)
     if outstanding:
         ref, at, observed = outstanding[0]
-        state = "running" if running else ("reserved" if observed == "requested" else "uncertain")
+        state = "uncertain" if gate_busy else ("running" if running else ("reserved" if observed == "requested" else "uncertain"))
         return {"state": state, "available": False, "active_issue": ref, "active_at": at}
     if running:
         return {"state": "running", "available": False,

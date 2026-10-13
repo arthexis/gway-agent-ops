@@ -66,10 +66,10 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
     gate_path = requests / "submission.lock"
     if gate_path.is_symlink():
         raise ValueError("unsafe submission lock")
-    gate_fd = os.open(gate_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     lock_path = directory / "execution.lock"
     if lock_path.is_symlink():
         raise ValueError("unsafe lock path")
+    gate_fd = os.open(gate_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(gate_fd, fcntl.LOCK_EX)
         descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -114,7 +114,8 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                 handle.flush()
                 os.fsync(handle.fileno())
         except BaseException:
-            # fdopen takes ownership of fd; already closed after context exit.
+            # fdopen owns the descriptor once entered; close only if it was
+            # rejected before ownership transferred.
             raise
         fcntl.flock(gate_fd, fcntl.LOCK_UN)
         yield record
