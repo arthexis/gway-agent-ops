@@ -100,7 +100,7 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
         try:
             record = json.loads(path.read_text())
             deliver(record, runner=runner)
-            _write(delivered / path.name, {"marker": record["marker"]})
+            _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code")})
             path.unlink()
             sent += 1
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):

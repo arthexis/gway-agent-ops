@@ -21,6 +21,16 @@ class ObservationTests(unittest.TestCase):
             result = observe(issue, at, state_dir=root)
             self.assertEqual(result["state"], "finished")
             self.assertEqual(result["exit_code"], 0)
+            from gway_agent_ops.reporting import _key
+            outbox = root / "outbox" / (_key(issue, "2026-10-13T15:00:00.000000Z") + ".json")
+            delivered = root / "delivered"
+            delivered.mkdir()
+            (delivered / outbox.name).write_text(json.dumps({
+                "status": "finished", "exit_code": 0, "marker": "test"}))
+            outbox.unlink()
+            observed = observe(issue, at, state_dir=root)
+            self.assertEqual(observed["state"], "finished")
+            self.assertTrue(observed["reported"])
 
     def test_rejects_invalid_issue(self):
         with self.assertRaises(ValueError):
