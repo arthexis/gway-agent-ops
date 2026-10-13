@@ -46,7 +46,7 @@ class AdmissionStatusTests(unittest.TestCase):
             root = Path(temp)
             ref, at = "owner/repo#1", "2026-10-13T15:00:00.000000Z"
             (root / "accepted.jsonl").write_text(
-                json.dumps({"issue": ref, "at": at}) + "\\n")
+                json.dumps({"issue": ref, "at": at}) + "\n")
             snapshot = status(state_dir=root)
             self.assertFalse(snapshot["available"])
             self.assertEqual(snapshot["active_issue"], ref)
