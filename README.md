@@ -233,3 +233,36 @@ the TUI notification settings. Other lifecycle event names previously
 considered (SessionStart, PermissionRequest, etc.) are not assumed to be
 supported by Codex's external notify API. Verify the installed Codex
 version and event behavior during S5 field validation.
+
+## S5 — GWAY-001 sound field verification
+
+Before checking audio hardware, update `gway-lcd-sound` and `gway-agent-ops`
+on GWAY-001 using their supported installation/deployment procedures.
+Do not modify the operator's `~/.codex` manually.
+
+1. **Sound mappings:** run `sound --resolve --event Stop --source codex`
+   and confirm sound `ok`. Run `sound --resolve --event disconnected
+   --source wifi` and confirm `warning`.
+2. **Motif sequence:** with sound unmuted, run `sound --event SessionStart
+   --source codex`, then `sound --event Stop --source codex` within
+   45 seconds. The first should include Codex motif, the second should
+   play only its event sound. Switch to `sound --event disconnected
+   --source wifi`; then return to Codex to confirm motif reannouncement.
+   Repeat Codex after over 45 seconds to confirm expiry.
+3. **Adoption:** run `agent adopt --with-sound --verify` only as
+   independent commands (`agent adopt --with-sound`, then
+   `agent adopt --verify`). Confirm the agent-owned `config.toml`
+   contains exactly one `notify = ["agent", "notify"]` and the
+   operator config remains unchanged.
+4. **Notify adapter:** invoke `agent notify '{"type":"agent-turn-complete"}'`
+   and verify the expected sound event. Run an actual Codex turn under
+   the agent-owned `CODEX_HOME` and verify Codex invokes notification
+   after completion. Observe that unknown types do not play.
+5. **Resilience:** verify muted GPIO, missing sound binary, interrupted
+   playback, rapid concurrent emitters and existing direct `sound ok`
+   remain safe. Collect diagnostic results *without* copying prompts,
+   auth files, or user content.
+
+Automated tests cannot prove physical GPIO/audio or a specific installed
+Codex version's support for `notify`. Record those observations in
+the dedicated S5 field issue before marking this stage complete.
