@@ -85,7 +85,8 @@ def _install_file(target: Path, data: bytes, *, replace: bool) -> str:
 
 
 def adopt(*, source: Path | None = None, destination: Path | None = None,
-          include_auth: bool = False, force: bool = False) -> dict:
+          include_auth: bool = False, force: bool = False,
+          with_sound: bool = False) -> dict:
     """Copy explicitly supported settings; credentials only with opt-in.
 
     This never links to the operator home, never reads the API-key environment
@@ -109,6 +110,8 @@ def adopt(*, source: Path | None = None, destination: Path | None = None,
                    for key, value in selected.items()).encode("utf-8")
     if not data:
         raise ValueError("source has no supported scalar Codex settings")
+    if with_sound:
+        data += b'notify = ["agent", "notify"]\\n'
     auth_data = None
     if include_auth:
         auth_path = source / "auth.json"
@@ -133,4 +136,4 @@ def adopt(*, source: Path | None = None, destination: Path | None = None,
     result = {name: _install_file(target / name, content, replace=force)
               for name, content in planned.items()}
     return {"destination": str(target), "mode": "copy", "files": result,
-            "auth_copied": auth_data is not None}
+            "auth_copied": auth_data is not None, "sound_enabled": with_sound}
