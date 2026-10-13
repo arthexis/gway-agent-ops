@@ -21,3 +21,18 @@ python3 -m py_compile scripts/gway/agent_alert.py tests/*.py
 bash -n scripts/gway/operator-log.sh
 git diff --check
 ```
+
+## On-demand agent CLI (A1 foundation)
+
+Install locally with `python3 -m pip install .` (prefer an isolated environment),
+then run `agent --help` or `agent issue --help`.
+
+Initial command grammar: `agent issue OWNER/REPO#NUMBER` (or `NUMBER --repo OWNER/REPO`),
+`agent issues --json`, `agent status --json`, `agent adopt --check`,
+and `agent hook EVENT`. Execution, account adoption, sound dispatch, and JSON
+responses are **not yet implemented**: these commands return exit code 3
+and print a clear diagnostic. They do not start Codex or read credentials.
+Malformed inputs return argparse exit code 2. Existing `bin/agent-alert`
+and operator-log scripts remain unchanged.
+
+A1 does not add a daemon, queue, polling or priority-based budget admission.
