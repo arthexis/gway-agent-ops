@@ -1,3 +1,5 @@
+import fcntl
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +101,21 @@ class NonblockingTests(unittest.TestCase):
                 self.assertEqual(submit("owner/repo#2", "2026-10-13T15:01:00Z",
                                         allowed_repositories=("owner/repo",),
                                         state_dir=root)["state"], "launch_unconfirmed")
+
+    def test_direct_execution_lock_blocks_submission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lock = root / "execution.lock"
+            fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch("gway_agent_ops.nonblocking.resolve", return_value={}):
+                    result = submit("owner/repo#2", "2026-10-13T15:01:00Z",
+                                    allowed_repositories=("owner/repo",), state_dir=root)
+                self.assertEqual(result["state"], "busy")
+                self.assertFalse(list((root / "requests").glob("*.json")))
+            finally:
+                os.close(fd)
 
 
 if __name__ == "__main__":
