@@ -99,10 +99,14 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
                 raise PermissionError("unsafe dispatch journal")
             with os.fdopen(fd, "r+", encoding="utf-8") as handle:
+                from .observation import observe
+                terminal = {"finished", "codex_failed", "interrupted", "released"}
                 for line in handle:
                     row = json.loads(line)
                     if row["issue"] == issue and row["at"] == at:
                         raise Duplicate("this issue and timestamp were already accepted")
+                    if observe(row["issue"], row["at"], state_dir=directory)["state"] not in terminal:
+                        raise Busy("a previously accepted invocation is unresolved")
                 record = {"issue": issue, "at": at}
                 if comment_baseline is not None:
                     record["comment_baseline"] = comment_baseline
