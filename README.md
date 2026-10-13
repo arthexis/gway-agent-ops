@@ -36,3 +36,20 @@ Malformed inputs return argparse exit code 2. Existing `bin/agent-alert`
 and operator-log scripts remain unchanged.
 
 A1 does not add a daemon, queue, polling or priority-based budget admission.
+
+## A1 JSON protocol (version 1)
+
+`agent issue REF --json`, `agent issues --json`, `agent status --json`,
+`agent adopt --json` and `agent hook EVENT --json` emit one JSON response
+envelope on stdout with keys `schema_version`, `command`, `status`,
+`data`, and `error`. Command implementations are not available until
+subsequent chunks: exit code 3 and `status=not_implemented` are intentional.
+No fake issue list or Codex quota data is returned.
+
+The versioned data contracts in `gway_agent_ops.contracts` reserve
+`budget.five_hour` and `budget.weekly` independently, each containing
+`remaining_percent`, `resets_at`, `source`, `observed_at` and `available`.
+Unavailable usage is represented as `null`, not zero. Issue rows include
+`repository`, `number`, `title`, canonical `url`, `state`
+(`open`, `sent`, or `attended`), cumulative `comments`, and `sent_at`.
+Agent Ops will own actual providers and issue retrieval in later chunks.
