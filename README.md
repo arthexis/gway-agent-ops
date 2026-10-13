@@ -131,3 +131,20 @@ values more than five minutes in the future are rejected.
 `not_implemented` stub: no user-provided reference can write dispatch state
 or launch Codex. Once trusted issue resolution is wired, the validated
 canonical issue key will be supplied to the admission component.
+
+## A3.1 — trusted issue lookup
+
+`gway_agent_ops.github_issues.resolve(REF, allowed_repositories=(...))`
+performs read-only GitHub API lookup via the installed `gh` CLI. The caller
+must supply an explicit repository allowlist; none is inferred or implicitly
+trusted. Only open GitHub **issues**, authored by `arthexis`, in a matching
+allowed repository pass validation. Pull requests, closed issues, mismatches
+and unavailable GitHub authentication fail closed. Only a canonical issue
+object is returned; the untrusted title/body must be treated as task data,
+never shell arguments.
+
+A3.1 deliberately does **not** invoke Codex, create a dispatch record, or
+route an untrusted issue through `agent issue`. Integration follows once
+trusted issue resolution and execution admission are connected. Future
+agent execution must use the copied agent-owned authentication environment
+rather than passing Android/Remote credentials.
