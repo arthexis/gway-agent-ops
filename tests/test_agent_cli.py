@@ -16,7 +16,7 @@ class AgentCliTests(unittest.TestCase):
                 parse_issue_ref(ref, repo)
 
     def test_commands_are_explicit_stubs(self):
-        variants = [["issue", "arthexis/repo#41"], ["issue", "41", "--repo", "arthexis/repo", "--resend"],
+        variants = [["issue", "arthexis/repo#41"], ["issue", "41", "--repo", "arthexis/repo", "--at", "2026-10-13T00:00:00Z"],
                     ["issues", "--json"], ["status", "--json"]]
         variants.extend([["hook", event] for event in EVENTS])
         for args in variants:
