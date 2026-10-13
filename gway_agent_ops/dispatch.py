@@ -48,7 +48,7 @@ class Duplicate(Exception):
 
 
 @contextlib.contextmanager
-def admission(issue: str, at: str, *, state_dir: Path | None = None):
+def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_baseline: int | None = None):
     """Atomically deduplicate and accept under an exclusive one-shot lock.
 
     A previously accepted key always reports Duplicate, even after restart.
@@ -56,6 +56,8 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None):
     """
     if not ISSUE.fullmatch(issue):
         raise ValueError("invalid issue identity")
+    if comment_baseline is not None and (type(comment_baseline) is not int or comment_baseline < 0):
+        raise ValueError("invalid comment baseline")
     at = timestamp(at)
     directory = Path(state_dir or DEFAULT_STATE)
     _private_directory(directory)
@@ -85,6 +87,8 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None):
                     if row["issue"] == issue and row["at"] == at:
                         raise Duplicate("this issue and timestamp were already accepted")
                 record = {"issue": issue, "at": at}
+                if comment_baseline is not None:
+                    record["comment_baseline"] = comment_baseline
                 handle.write(json.dumps(record, separators=(",", ":")) + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
