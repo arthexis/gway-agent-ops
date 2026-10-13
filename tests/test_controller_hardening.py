@@ -82,13 +82,14 @@ class ControllerHardeningTests(unittest.TestCase):
     def test_competing_processes_cannot_both_admit(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with admission(ref, at, state_dir=self.root):
-            program = (
-                "from pathlib import Path\\n"
-                "from gway_agent_ops.dispatch import admission, Busy\\n"
-                "try:\\n"
-                f" with admission('owner/repo#2', '2026-10-13T15:01:00Z', state_dir=Path({str(self.root)!r})): pass\\n"
-                "except Busy: raise SystemExit(42)\\n"
-            )
+            program = "\n".join([
+                "from pathlib import Path",
+                "from gway_agent_ops.dispatch import admission, Busy",
+                "try:",
+                f" with admission('owner/repo#2', '2026-10-13T15:01:00Z', state_dir=Path({str(self.root)!r})): pass",
+                "except Busy: raise SystemExit(42)",
+                "",
+            ])
             child = subprocess.run([sys.executable, "-c", program],
                                    capture_output=True, text=True, timeout=10)
             self.assertEqual(child.returncode, 42, child.stderr)
