@@ -90,6 +90,8 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
         return {"sent": 0, "pending": 0}
     sent = 0
     pending = 0
+    delivered = root / "delivered"
+    _private_directory(delivered)
     for path in sorted(outbox.glob("*.json")):
         if path.is_symlink():
             pending += 1
@@ -97,6 +99,7 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
         try:
             record = json.loads(path.read_text())
             deliver(record, runner=runner)
+            _write(delivered / path.name, {"marker": record["marker"]})
             path.unlink()
             sent += 1
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
@@ -104,7 +107,7 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
     return {"sent": sent, "pending": pending}
 
 
-def recover(*, state_dir: Path | None = None) -> int:
+def recover(*, state_dir: Path | None = None, active: tuple[str, str] | None = None) -> int:
     """Reconcile accepted invocations not yet given a reporting record.
 
     Must be called while the dispatch execution lock is held, so an active
@@ -116,13 +119,14 @@ def recover(*, state_dir: Path | None = None) -> int:
         return 0
     outbox = root / "outbox"
     _private_directory(outbox)
+    delivered = root / "delivered"
+    _private_directory(delivered)
     created = 0
     for line in ledger.read_text().splitlines():
         accepted = json.loads(line)
         path = outbox / (_key(accepted["issue"], accepted["at"]) + ".json")
-        # The next chunk can add a persistent delivered-ack index. For now
-        # existing remotely posted comments are de-duplicated by marker.
-        if not path.exists():
+        if ((accepted["issue"], accepted["at"]) != active
+                and not path.exists() and not (delivered / path.name).exists()):
             enqueue(accepted["issue"], accepted["at"], state_dir=root)
             created += 1
     return created
