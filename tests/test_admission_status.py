@@ -41,6 +41,20 @@ class AdmissionStatusTests(unittest.TestCase):
             finally:
                 os.close(fd)
 
+    def test_unresolved_direct_acceptance_blocks_remote_submission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref, at = "owner/repo#1", "2026-10-13T15:00:00.000000Z"
+            (root / "accepted.jsonl").write_text(
+                json.dumps({"issue": ref, "at": at}) + "\\n")
+            snapshot = status(state_dir=root)
+            self.assertFalse(snapshot["available"])
+            self.assertEqual(snapshot["active_issue"], ref)
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={}):
+                response = submit("owner/repo#2", "2026-10-13T15:01:00Z",
+                                  allowed_repositories=("owner/repo",), state_dir=root)
+            self.assertEqual(response["state"], "busy")
+
     def test_corrupt_record_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
