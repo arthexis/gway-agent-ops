@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
@@ -60,7 +61,6 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
-        import shutil
         executable = shutil.which("agent")
         if not executable or not Path(executable).is_file():
             return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
