@@ -74,6 +74,11 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
                 return {"issue": ref, "at": at, "state": "busy"}
         finally:
             os.close(execution_fd)
+        from .admission_status import status as admission_status
+        snapshot = admission_status(state_dir=root)
+        if not snapshot["available"]:
+            return {"issue": ref, "at": at, "state": "busy",
+                    "active_issue": snapshot["active_issue"]}
         active = _outstanding_request(requests, root, digest)
         if active is not None:
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
