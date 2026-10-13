@@ -16,6 +16,28 @@ import shutil
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
+from .observation import observe
+
+
+_TERMINAL = frozenset({"finished", "codex_failed", "interrupted"})
+
+
+def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str | None:
+    """Fail closed while any different durable submission is unresolved."""
+    for path in sorted(requests.glob("*.json")):
+        if path.is_symlink():
+            raise ValueError("unsafe_dispatch_path")
+        if path.stem == current:
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        ref, at = record.get("issue"), record.get("at")
+        if not isinstance(ref, str) or not isinstance(at, str):
+            raise ValueError("invalid request journal")
+        state = observe(ref, at, state_dir=state_dir)["state"]
+        if state not in _TERMINAL:
+            return ref
+    return None
+
 
 
 def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
@@ -41,6 +63,9 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         if marker.exists():
             return {"issue": ref, "at": at, "state": "already_requested"}
+        active = _outstanding_request(requests, root, digest)
+        if active is not None:
+            return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
         # Apply the existing GitHub trust gate before creating any work.
         resolve(ref, allowed_repositories=allowed_repositories)
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
