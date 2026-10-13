@@ -148,3 +148,29 @@ route an untrusted issue through `agent issue`. Integration follows once
 trusted issue resolution and execution admission are connected. Future
 agent execution must use the copied agent-owned authentication environment
 rather than passing Android/Remote credentials.
+
+## A3.3 — One-shot Codex execution
+
+`agent issue OWNER/REPO#NUMBER [--at UTC_TIMESTAMP] [--json]` now
+resolves and validates the GitHub issue, acquires the A3.2 single-agent
+execution lock, and runs one bounded `codex exec` subprocess. Configure an
+explicit comma-separated `GWAY_AGENT_ALLOWED_REPOS` and
+`GWAY_AGENT_WORKSPACE_ROOT`; existing checkouts must live at
+`WORKSPACE_ROOT/OWNER/REPO`. No arbitrary working directory may be supplied
+by a remotely submitted issue. Use `agent adopt --include-auth` to prepare
+an agent-owned Codex login before starting. Environment variables containing
+operator tokens are not passed into Codex.
+
+The subprocess receives issue text on stdin and is given up to 30 minutes by
+default. The lock is retained throughout its lifetime; concurrent invocations
+return `busy` without queuing. Each fresh operator submission uses a new
+UTC timestamp; delivery retries reuse the frozen value. Dispatch identity
+is durable across restarts. stdout/stderr from Codex are **never returned to
+Remote** because they can contain credentials or unexpected data. Output
+contains the exit code and issue body fingerprint; a zero exit code is **not
+a claim that the issue was successfully resolved**.
+
+**Important:** GitHub result comments and crash recovery belong to A3.4;
+there is no automatic report yet. This A3.3 implementation runs
+synchronously from the invoking process; safe detached Remote invocation is
+part of the later transport integration. This is not a daemon or scheduler.

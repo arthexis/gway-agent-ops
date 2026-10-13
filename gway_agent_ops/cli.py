@@ -1,5 +1,7 @@
 """CLI contract only: this foundation never executes Codex."""
 import argparse
+import os
+from pathlib import Path
 import re
 import sys
 from .contracts import envelope, json_line, status_data
@@ -60,6 +62,33 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "issue":
+        from .dispatch import Busy, Duplicate
+        from .github_issues import IssueRejected
+        from .executor import ExecutionError, execute
+        try:
+            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
+            if not workspace:
+                raise ExecutionError("workspace_root_missing")
+            data = execute(args.ref, repo=args.repo, at=args.at,
+                           allowed_repositories=allowed, workspace_root=Path(workspace))
+            status = data["status"]
+            code = 0 if status == "finished" else 1
+            error = None if code == 0 else {"code": "codex_failed", "message": "Codex returned nonzero"}
+        except (Busy, Duplicate, IssueRejected, ExecutionError, OSError, ValueError) as exc:
+            status = ("busy" if isinstance(exc, Busy) else
+                      "duplicate" if isinstance(exc, Duplicate) else "error")
+            code = 4 if isinstance(exc, Busy) else (5 if isinstance(exc, Duplicate) else 1)
+            error = {"code": getattr(exc, "code", status), "message": str(exc)}
+            data = None
+        if args.json:
+            print(json_line(envelope("issue", status, data=data, error=error)))
+        elif error:
+            print(f"agent issue: {error['message']}", file=sys.stderr)
+        else:
+            print(f"Codex returned for {data['issue']} at {data['at']}; exit {data['exit_code']}")
+        return code
     if args.command == "adopt" and args.verify:
         result = verify()
         if args.json:
