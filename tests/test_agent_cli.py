@@ -17,7 +17,7 @@ class AgentCliTests(unittest.TestCase):
 
     def test_commands_are_explicit_stubs(self):
         variants = [["issue", "arthexis/repo#41"], ["issue", "41", "--repo", "arthexis/repo", "--resend"],
-                    ["issues", "--json"], ["status", "--json"], ["adopt", "--check"]]
+                    ["issues", "--json"], ["status", "--json"], ["adopt"]]
         variants.extend([["hook", event] for event in EVENTS])
         for args in variants:
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
