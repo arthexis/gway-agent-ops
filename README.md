@@ -174,3 +174,24 @@ a claim that the issue was successfully resolved**.
 there is no automatic report yet. This A3.3 implementation runs
 synchronously from the invoking process; safe detached Remote invocation is
 part of the later transport integration. This is not a daemon or scheduler.
+
+## A3.4 — GitHub comments and recovery
+
+Execution now persists a minimal report in a protected, fsynced local
+outbox before sending a GitHub issue comment. The report contains only the
+canonical issue, frozen dispatch timestamp, process exit code and an
+idempotency marker; it never includes Codex stdout, stderr, prompts or
+credential contents. GitHub comments report that Codex finished, failed,
+or was interrupted, **not** whether the issue was solved.
+
+A failed GitHub request retains the report for later delivery. The next
+`agent issue` attempts delivery via the authenticated GitHub CLI. Repeating
+a report checks for an existing marker in issue comments before posting,
+and keeps a durable local delivered acknowledgment. Interrupted accepted
+invocations are reconstructed from the dispatch journal under the
+exclusive lock on the next invocation, without rerunning Codex.
+
+This is intentionally best-effort crash recovery: a host that never
+executes another Agent Ops command cannot send a pending comment by
+itself, because there is no persistent daemon or scheduler. A3.5 will
+expose and test read-only reporting/issue projections.
