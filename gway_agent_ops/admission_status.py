@@ -48,6 +48,21 @@ def status(*, state_dir: Path | None = None) -> dict:
             observed = observe(ref, at, state_dir=root)["state"]
             if observed not in TERMINAL:
                 outstanding.append((ref, at, observed))
+    # Direct invocations have no request marker. Their accepted journal must
+    # remain authoritative until a durable terminal report is observed.
+    ledger = root / "accepted.jsonl"
+    if ledger.is_symlink():
+        raise ValueError("unsafe dispatch journal")
+    if ledger.exists():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            ref, at = record.get("issue"), record.get("at")
+            if not isinstance(ref, str) or not isinstance(at, str):
+                raise ValueError("invalid acceptance journal")
+            observed = observe(ref, at, state_dir=root)["state"]
+            if observed not in TERMINAL and (ref, at, observed) not in outstanding:
+                if not any(row[0] == ref and row[1] == at for row in outstanding):
+                    outstanding.append((ref, at, observed))
     if len(outstanding) > 1:
         return {"state": "uncertain", "available": False,
                 "active_issue": None, "active_at": None}
