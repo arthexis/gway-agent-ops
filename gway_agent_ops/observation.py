@@ -42,7 +42,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
 
 
 def _pending_request(root: Path, ref: str, at: str) -> dict:
-    digest = hashlib.sha256((ref + "\\n" + at).encode()).hexdigest()
+    digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
     path = root / "requests" / (digest + ".json")
     if path.is_symlink():
         raise ValueError("unsafe request path")
