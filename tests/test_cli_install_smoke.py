@@ -24,7 +24,7 @@ class InstalledCliTests(unittest.TestCase):
     def test_contracts_without_credentials_or_execution(self):
         commands = (("issue", "arthexis/gway-lcd-sound#19", "--json"),
                     ("issues", "--json"), ("status", "--json"),
-                    ("adopt", "--json"), ("hook", "Stop", "--json"))
+                    ("hook", "Stop", "--json"))
         for args in commands:
             with self.subTest(args=args):
                 result = self.call(*args)

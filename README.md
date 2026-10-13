@@ -62,3 +62,19 @@ and auth-file **metadata**, and API-key presence without reading or printing
 secrets. This command never provisions identity or copies files; regular
 `agent adopt` still fails explicitly until A2.2. Adoption will create a
 separate agent-owned configuration copy, not a live link.
+
+## A2.2: copy-based provisioning
+
+Run `agent adopt` to copy a small allowlist of Codex settings from
+`CODEX_HOME` (default `~/.codex`) into
+`~/.local/share/gway-agent-ops/codex-home`. No symlinks are installed.
+Supported scalar settings are `model`, `model_reasoning_effort`,
+`approval_policy`, and `sandbox_mode`; arbitrary hooks, MCP servers,
+trust rules and external commands are deliberately excluded.
+
+Authentication is **not** copied by default. Use `agent adopt --include-auth`
+to copy an existing owner-only `auth.json` as a separate protected snapshot.
+No environment API key is persisted. Identical files are left intact;
+different existing files require explicit `--force`. Run
+`agent adopt --check` for metadata-only inspection. Never run adoption
+as root to provision another user's credentials.
