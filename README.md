@@ -195,3 +195,24 @@ This is intentionally best-effort crash recovery: a host that never
 executes another Agent Ops command cannot send a pending comment by
 itself, because there is no persistent daemon or scheduler. A3.5 will
 expose and test read-only reporting/issue projections.
+
+## A3.5 — Issue list projection
+
+`agent issues --json` lists open GitHub issues from the explicit
+`GWAY_AGENT_ALLOWED_REPOS` allowlist, filtering for issues created by
+`arthexis`. Closed issues, pull requests and other authors are excluded.
+GitHub listing failures return an error rather than a misleading partial
+success.
+
+The response uses the versioned CLI envelope and an `issues` array with
+title, URL, repository, issue number, cumulative comment count, latest send
+timestamp, and projection state: `open` (no accepted send), `sent` (no
+newer comment than the last accepted send), or `attended` (comment count
+greater than that send's stored baseline). A new accepted dispatch resets
+the baseline. Older dispatch records missing a comment baseline remain
+`sent` rather than guessing that they have been attended.
+
+This projection reflects **comments**, not verified issue completion.
+The command is read-only and does not launch Codex or deliver pending
+reports. Field validation on GWAY-001 and remote Android integration remain
+separate follow-up work.
