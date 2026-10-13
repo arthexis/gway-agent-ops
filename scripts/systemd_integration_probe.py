@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -13,6 +14,7 @@ import sys
 
 from gway_agent_ops.dispatch import admission, Busy
 from gway_agent_ops.admission_status import status
+from gway_agent_ops.nonblocking import release
 from gway_agent_ops.reporting import _key
 from gway_agent_ops.dispatch import timestamp
 
@@ -91,10 +93,50 @@ def verify() -> dict:
                            state_dir=controller):
                 if status(state_dir=controller)["available"]:
                     raise RuntimeError("second_admission_not_reserved")
+            # Exercise the actual release implementation against a real,
+            # isolated systemd unit named exactly as the controller expects.
+            release_root = root / "release-controller"
+            release_root.mkdir(mode=0o700)
+            ref, at = "arthexis/probe#3", timestamp("2026-10-01T00:02:00Z")
+            digest = hashlib.sha256((ref + "\\n" + at).encode()).hexdigest()
+            requests = release_root / "requests"
+            requests.mkdir(mode=0o700)
+            (requests / (digest + ".json")).write_text(
+                json.dumps({"issue": ref, "at": at, "state": "requested"}),
+                encoding="utf-8",
+            )
+            release_unit = "gway-agent-" + digest[:32]
+            release_sentinel = root / "release-started"
+            release_program = (
+                "import pathlib,time; "
+                f"pathlib.Path({str(release_sentinel)!r}).write_text('started'); "
+                "time.sleep(90)"
+            )
+            launched_release = run(
+                "systemd-run", "--user", "--quiet", "--collect",
+                "--unit=" + release_unit, "--", sys.executable, "-c",
+                release_program,
+            )
+            if launched_release.returncode:
+                raise RuntimeError("release_unit_launch_failed")
+            try:
+                deadline = time.monotonic() + 10
+                while not release_sentinel.exists() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                if not release_sentinel.exists():
+                    raise RuntimeError("release_unit_never_started")
+                if release(ref, at, state_dir=release_root)["state"] != "released":
+                    raise RuntimeError("release_not_recorded")
+                if release(ref, at, state_dir=release_root)["state"] != "already_terminal":
+                    raise RuntimeError("release_not_idempotent")
+                if not status(state_dir=release_root)["available"]:
+                    raise RuntimeError("release_did_not_reopen_slot")
+            finally:
+                run("systemctl", "--user", "stop", release_unit + ".service")
             return {"result": "passed", "launch": True, "stop": True,
                     "inactive": True, "cross_process_exclusion": True,
-                    "durable_reservation": True, "terminal_reopens_slot": True,
-                    "isolated": True}
+                    "durable_reservation": True, "terminal_reopens_slot": True, "real_release": True,
+                    "release_idempotent": True, "isolated": True}
         finally:
             # Always attempt cleanup, even when verification fails.
             run("systemctl", "--user", "stop", unit + ".service")
