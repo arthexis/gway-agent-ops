@@ -2,6 +2,7 @@
 import argparse
 import re
 import sys
+from .contracts import envelope, json_line, status_data
 from . import __version__
 
 REF = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
@@ -30,10 +31,15 @@ def build_parser():
     issue.add_argument("ref")
     issue.add_argument("--repo")
     issue.add_argument("--resend", action="store_true")
+    issue.add_argument("--json", action="store_true", help="Machine-readable response")
     for name in ("issues", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
-    sub.add_parser("adopt").add_argument("--check", action="store_true")
-    sub.add_parser("hook").add_argument("event", choices=EVENTS)
+    adopt = sub.add_parser("adopt")
+    adopt.add_argument("--check", action="store_true")
+    adopt.add_argument("--json", action="store_true")
+    hook = sub.add_parser("hook")
+    hook.add_argument("event", choices=EVENTS)
+    hook.add_argument("--json", action="store_true")
     return parser
 
 
@@ -45,7 +51,14 @@ def main(argv=None):
             parse_issue_ref(args.ref, args.repo)
         except ValueError as exc:
             parser.error(str(exc))
-    print(f"agent {args.command}: not implemented (A1 contract only)", file=sys.stderr)
+    if args.json:
+        print(json_line(envelope(
+            args.command, "not_implemented",
+            data=None,
+            error={"code": "not_implemented",
+                   "message": "Command implementation is not available in A1"})))
+    else:
+        print(f"agent {args.command}: not implemented (A1 contract only)", file=sys.stderr)
     return NOT_IMPLEMENTED
 
 

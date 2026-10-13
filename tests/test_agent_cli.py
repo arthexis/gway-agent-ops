@@ -20,9 +20,13 @@ class AgentCliTests(unittest.TestCase):
                     ["issues", "--json"], ["status", "--json"], ["adopt", "--check"]]
         variants.extend([["hook", event] for event in EVENTS])
         for args in variants:
-            with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(main(args), NOT_IMPLEMENTED)
-                self.assertIn("not implemented", err.getvalue())
+                if "--json" in args:
+                    self.assertIn('"status":"not_implemented"', out.getvalue())
+                    self.assertEqual(err.getvalue(), "")
+                else:
+                    self.assertIn("not implemented", err.getvalue())
 
     def test_bad_ref_exit_code(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
