@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from gway_agent_ops.nonblocking import submit
+from gway_agent_ops.nonblocking import submit, release
 from gway_agent_ops.observation import observe
 
 
@@ -70,6 +70,35 @@ class NonblockingTests(unittest.TestCase):
                 second = submit("owner/repo#2", "2026-10-13T15:01:00Z",
                                 allowed_repositories=("owner/repo",), state_dir=root)
                 self.assertEqual(second["state"], "launch_unconfirmed")
+
+    def test_release_requires_confirmed_stopped_unit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+                 patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+                submit(ref, at, allowed_repositories=("owner/repo",), state_dir=root)
+                runner = Mock(return_value=Mock(returncode=1, stdout=""))
+                with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
+                    release(ref, at, state_dir=root, runner=runner)
+                self.assertEqual(observe(ref, at, state_dir=root)["state"], "requested")
+
+    def test_release_is_durable_and_does_not_retry_original_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+                 patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+                submit(ref, at, allowed_repositories=("owner/repo",), state_dir=root)
+                runner = Mock(side_effect=[Mock(returncode=0, stdout=""),
+                                           Mock(returncode=3, stdout="inactive\\n")])
+                self.assertEqual(release(ref, at, state_dir=root, runner=runner)["state"], "released")
+                self.assertEqual(observe(ref, at, state_dir=root)["state"], "released")
+                self.assertEqual(submit(ref, at, allowed_repositories=("owner/repo",),
+                                        state_dir=root)["state"], "already_requested")
+                self.assertEqual(submit("owner/repo#2", "2026-10-13T15:01:00Z",
+                                        allowed_repositories=("owner/repo",),
+                                        state_dir=root)["state"], "launch_unconfirmed")
 
 
 if __name__ == "__main__":
