@@ -37,6 +37,10 @@ def build_parser():
     issue.add_argument("--repo")
     issue.add_argument("--at", metavar="TIMESTAMP", help="Frozen ISO-8601 dispatch timestamp for idempotent retries")
     issue.add_argument("--json", action="store_true", help="Machine-readable response")
+    submission = sub.add_parser("submit", help="Request a trusted issue without waiting for execution")
+    submission.add_argument("ref")
+    submission.add_argument("--at", required=True)
+    submission.add_argument("--json", action="store_true")
     observation = sub.add_parser("observe", help="Inspect a previously submitted issue and timestamp")
     observation.add_argument("ref")
     observation.add_argument("--at", required=True)
@@ -70,6 +74,22 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "submit":
+        from .nonblocking import submit
+        try:
+            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            data = submit(args.ref, args.at, allowed_repositories=allowed)
+            result = envelope("submit", "ok", data=data)
+            code = 0
+        except (ValueError, OSError, KeyError, TypeError):
+            result = envelope("submit", "error", error={
+                "code": "submission_unavailable", "message": "Unable to request invocation"})
+            code = 1
+        if args.json:
+            print(json_line(result))
+        else:
+            print(result["data"]["state"] if code == 0 else "Submission unavailable")
+        return code
     if args.command == "observe":
         from .observation import observe
         try:
