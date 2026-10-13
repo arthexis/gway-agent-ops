@@ -41,6 +41,9 @@ def build_parser():
     submission.add_argument("ref")
     submission.add_argument("--at", required=True)
     submission.add_argument("--json", action="store_true")
+    preview_parser = sub.add_parser("preview", help="Read the trusted issue execution prompt without dispatch")
+    preview_parser.add_argument("ref")
+    preview_parser.add_argument("--json", action="store_true")
     observation = sub.add_parser("observe", help="Inspect a previously submitted issue and timestamp")
     observation.add_argument("ref")
     observation.add_argument("--at", required=True)
@@ -89,6 +92,17 @@ def main(argv=None):
             print(json_line(result))
         else:
             print(result["data"]["state"] if code == 0 else "Submission unavailable")
+        return code
+    if args.command == "preview":
+        from .executor import preview, ExecutionError
+        from .github_issues import IssueRejected
+        try:
+            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            data = preview(args.ref, allowed_repositories=allowed)
+            result, code = envelope("preview", "ok", data=data), 0
+        except (ValueError, OSError, IssueRejected, ExecutionError):
+            result, code = envelope("preview", "error", error={"code": "preview_unavailable", "message": "Trusted prompt unavailable"}), 1
+        print(json_line(result) if args.json else (data["prompt"] if code == 0 else "Prompt unavailable"))
         return code
     if args.command == "observe":
         from .observation import observe
