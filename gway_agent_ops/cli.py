@@ -82,6 +82,12 @@ def main(argv=None):
             code = 4 if isinstance(exc, Busy) else (5 if isinstance(exc, Duplicate) else 1)
             error = {"code": getattr(exc, "code", status), "message": str(exc)}
             data = None
+        # Reporting failure is retained in the durable outbox; never rerun Codex.
+        from .reporting import flush
+        try:
+            flush()
+        except (OSError, ValueError):
+            pass
         if args.json:
             print(json_line(envelope("issue", status, data=data, error=error)))
         elif error:
