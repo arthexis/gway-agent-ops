@@ -37,6 +37,40 @@ class NonblockingTests(unittest.TestCase):
                            state_dir=Path(temp), runner=runner)
                 runner.assert_not_called()
 
+    def test_different_issue_blocked_while_request_unresolved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+                 patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+                first = submit("owner/repo#1", "2026-10-13T15:00:00Z",
+                               allowed_repositories=("owner/repo",), state_dir=root)
+                self.assertEqual(first["state"], "launch_unconfirmed")
+                second = submit("owner/repo#2", "2026-10-13T15:01:00Z",
+                                allowed_repositories=("owner/repo",), state_dir=root)
+                self.assertEqual(second["state"], "busy")
+                self.assertEqual(second["active_issue"], "owner/repo#1")
+                self.assertEqual(len(list((root / "requests").glob("*.json"))), 1)
+                again = submit("owner/repo#1", "2026-10-13T15:00:00Z",
+                               allowed_repositories=("owner/repo",), state_dir=root)
+                self.assertEqual(again["state"], "already_requested")
+
+    def test_terminal_request_allows_next_issue(self):
+        import json
+        from gway_agent_ops.reporting import _key
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref, at = "owner/repo#1", "2026-10-13T15:00:00.000000Z"
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+                 patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+                submit(ref, at, allowed_repositories=("owner/repo",), state_dir=root)
+                (root / "accepted.jsonl").write_text(json.dumps({"issue": ref, "at": at}) + "\\n")
+                (root / "delivered").mkdir()
+                (root / "delivered" / (_key(ref, at) + ".json")).write_text(
+                    json.dumps({"status": "finished", "exit_code": 0}))
+                second = submit("owner/repo#2", "2026-10-13T15:01:00Z",
+                                allowed_repositories=("owner/repo",), state_dir=root)
+                self.assertEqual(second["state"], "launch_unconfirmed")
+
 
 if __name__ == "__main__":
     unittest.main()
