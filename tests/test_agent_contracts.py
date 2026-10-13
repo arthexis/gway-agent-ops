@@ -6,20 +6,25 @@ import unittest
 from gway_agent_ops.contracts import (
     envelope, status_data, budget_window, issue_row, json_line, unavailable_budget)
 from gway_agent_ops.cli import main, NOT_IMPLEMENTED
+from unittest.mock import patch
 
 
 class ContractTests(unittest.TestCase):
-    def test_envelope_and_json_failure(self):
-        with contextlib.redirect_stdout(io.StringIO()) as stdout:
-            self.assertEqual(main(["status", "--json"]), NOT_IMPLEMENTED)
+    def test_status_envelope_and_admission_contract(self):
+        with patch("gway_agent_ops.admission_status.status", return_value={"state": "idle", "available": True, "active_issue": None, "active_at": None}), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(main(["status", "--json"]), 0)
         output = stdout.getvalue().strip().splitlines()
         self.assertEqual(len(output), 1)
         payload = json.loads(output[0])
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["command"], "status")
-        self.assertEqual(payload["status"], "not_implemented")
-        self.assertIsNone(payload["data"])
-        self.assertEqual(payload["error"]["code"], "not_implemented")
+        self.assertEqual(payload["status"], "ok")
+        self.assertIsNone(payload["error"])
+        self.assertEqual(payload["data"]["admission"]["state"], "idle")
+        self.assertTrue(payload["data"]["admission"]["available"])
+        self.assertFalse(payload["data"]["active"])
+        self.assertIn("five_hour", payload["data"]["budget"])
+        self.assertIn("weekly", payload["data"]["budget"])
 
     def test_every_command_json_mode(self):
         cases = [["hook", "SessionStart", "--json"]]
