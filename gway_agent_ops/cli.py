@@ -44,8 +44,12 @@ def build_parser():
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--verify", action="store_true")
     adopt.add_argument("--include-auth", action="store_true")
+    adopt.add_argument("--with-sound", action="store_true", help="Install supported Codex completion notification")
     adopt.add_argument("--force", action="store_true")
     adopt.add_argument("--json", action="store_true")
+    notify = sub.add_parser("notify", help="Handle supported Codex external notify JSON payload")
+    notify.add_argument("payload")
+    notify.add_argument("--json", action="store_true")
     hook = sub.add_parser("hook")
     hook.add_argument("event", choices=EVENTS)
     hook.add_argument("--json", action="store_true")
@@ -114,6 +118,16 @@ def main(argv=None):
             for row in data["issues"]:
                 print(f'{row["repository"]}#{row["number"]} {row["state"]} ({row["comments"]} comments): {row["title"]}')
         return code
+    if args.command == "notify":
+        from .sound_notify import dispatch
+        try:
+            data = dispatch(args.payload)
+            status, error, code = "ok", None, 0
+        except ValueError:
+            data, status, error, code = None, "error", {"code": "invalid_notification", "message": "Invalid notification"}, 1
+        if args.json:
+            print(json_line(envelope("notify", status, data=data, error=error)))
+        return code
     if args.command == "adopt" and args.verify:
         result = verify()
         if args.json:
@@ -138,7 +152,7 @@ def main(argv=None):
         return 0
     if args.command == "adopt":
         try:
-            result = adopt_config(include_auth=args.include_auth, force=args.force)
+            result = adopt_config(include_auth=args.include_auth, force=args.force, with_sound=args.with_sound)
         except (OSError, ValueError) as exc:
             if args.json:
                 print(json_line(envelope("adopt", "error", error={"code": "adoption_failed", "message": str(exc)})))
