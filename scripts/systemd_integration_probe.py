@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+import sys
 
 from gway_agent_ops.dispatch import admission, Busy
 from gway_agent_ops.admission_status import status
@@ -69,7 +70,7 @@ def verify() -> dict:
                     "except Busy: raise SystemExit(42)",
                     "",
                 ])
-                contender = run("python3", "-c", child_program)
+                contender = run(sys.executable, "-c", child_program)
                 if contender.returncode != 42:
                     raise RuntimeError("cross_process_exclusion_failed")
             if status(state_dir=controller)["available"]:
