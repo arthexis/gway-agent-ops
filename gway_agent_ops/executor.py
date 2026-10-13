@@ -54,7 +54,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         'Do not push, merge, close issues or publish results; reporting is handled separately.\n'
     )
     digest = hashlib.sha256((issue["title"] + "\n" + issue["body"]).encode()).hexdigest()
-    with admission(key, at, state_dir=state_dir) as accepted:
+    with admission(key, at, state_dir=state_dir, comment_baseline=issue['comments']) as accepted:
         # The lock is held while reconciling old crashes. Current dispatch
         # must never be interpreted as interrupted while still running.
         recover(state_dir=state_dir, active=(key, accepted["at"]))

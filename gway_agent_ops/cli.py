@@ -95,6 +95,25 @@ def main(argv=None):
         else:
             print(f"Codex returned for {data['issue']} at {data['at']}; exit {data['exit_code']}")
         return code
+    if args.command == "issues":
+        from .issue_views import list_issues
+        from .github_issues import IssueRejected
+        try:
+            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            data = {"issues": list_issues(allowed_repositories=allowed)}
+            status, error, code = "ok", None, 0
+        except (IssueRejected, OSError, ValueError) as exc:
+            data, status, code = None, "error", 1
+            error = {"code": getattr(exc, "code", "issues_unavailable"),
+                     "message": "Issue listing unavailable"}
+        if args.json:
+            print(json_line(envelope("issues", status, data=data, error=error)))
+        elif error:
+            print("agent issues: issue listing unavailable", file=sys.stderr)
+        else:
+            for row in data["issues"]:
+                print(f'{row["repository"]}#{row["number"]} {row["state"]} ({row["comments"]} comments): {row["title"]}')
+        return code
     if args.command == "adopt" and args.verify:
         result = verify()
         if args.json:
