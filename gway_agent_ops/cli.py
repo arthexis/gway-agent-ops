@@ -37,6 +37,10 @@ def build_parser():
     issue.add_argument("--repo")
     issue.add_argument("--at", metavar="TIMESTAMP", help="Frozen ISO-8601 dispatch timestamp for idempotent retries")
     issue.add_argument("--json", action="store_true", help="Machine-readable response")
+    observation = sub.add_parser("observe", help="Inspect a previously submitted issue and timestamp")
+    observation.add_argument("ref")
+    observation.add_argument("--at", required=True)
+    observation.add_argument("--json", action="store_true")
     for name in ("issues", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     adopt = sub.add_parser("adopt")
@@ -66,6 +70,21 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "observe":
+        from .observation import observe
+        try:
+            data = observe(args.ref, args.at)
+            result = envelope("observe", "ok", data=data)
+            code = 0
+        except (ValueError, OSError, KeyError, TypeError):
+            result = envelope("observe", "error", error={
+                "code": "observation_unavailable", "message": "Unable to inspect invocation"})
+            code = 1
+        if args.json:
+            print(json_line(result))
+        else:
+            print(result["data"]["state"] if code == 0 else "Observation unavailable")
+        return code
     if args.command == "issue":
         from .dispatch import Busy, Duplicate
         from .github_issues import IssueRejected
