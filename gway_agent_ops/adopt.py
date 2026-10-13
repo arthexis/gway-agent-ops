@@ -111,7 +111,7 @@ def adopt(*, source: Path | None = None, destination: Path | None = None,
     if not data:
         raise ValueError("source has no supported scalar Codex settings")
     if with_sound:
-        data += b'notify = ["agent", "notify"]\\n'
+        data += b'notify = ["agent", "notify"]\n'
     auth_data = None
     if include_auth:
         auth_path = source / "auth.json"
