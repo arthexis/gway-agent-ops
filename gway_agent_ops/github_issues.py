@@ -50,7 +50,8 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
             raise IssueRejected("issue_mismatch")
         if payload["repository_url"].rstrip("/").endswith(f"/repos/{repository}") is False:
             raise IssueRejected("repository_mismatch")
-        if (not isinstance(payload["title"], str) or not isinstance(payload.get("body"), (str, type(None)))\n                or type(payload.get("comments")) is not int or payload["comments"] < 0):
+        if (not isinstance(payload["title"], str) or not isinstance(payload.get("body"), (str, type(None)))
+                or type(payload.get("comments")) is not int or payload["comments"] < 0):
             raise IssueRejected("invalid_issue")
         return {"repository": repository, "number": number,
                 "title": payload["title"], "body": payload.get("body") or "",
