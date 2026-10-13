@@ -10,7 +10,8 @@ class NonblockingTests(unittest.TestCase):
     def test_once_only_and_observable(self):
         ref, at = "arthexis/example#3", "2026-10-13T15:00:00Z"
         with tempfile.TemporaryDirectory() as temp:
-            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+            with patch.dict("os.environ", {"GWAY_AGENT_WORKSPACE_ROOT": "/tmp/workspace"}), \
+                 patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
                  patch("gway_agent_ops.nonblocking.shutil.which", return_value="/usr/bin/agent"), \
                  patch("gway_agent_ops.nonblocking.Path.is_file", return_value=True):
                 runner = Mock(return_value=Mock(returncode=0))

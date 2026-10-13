@@ -58,16 +58,18 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
+            "--setenv=GWAY_AGENT_ALLOWED_REPOS=" + ",".join(allowed_repositories),
+            "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
         executable = shutil.which("agent")
-        if not executable or not Path(executable).is_file():
+        if not executable or not Path(executable).is_file() or not os.environ.get("GWAY_AGENT_WORKSPACE_ROOT"):
             return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
         command.extend([executable, "issue", ref, "--at", at, "--json"])
         try:
             result = runner(command, capture_output=True, text=True,
-                            check=False, timeout=15)
+                            check=False, timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
         return {"issue": ref, "at": at,
