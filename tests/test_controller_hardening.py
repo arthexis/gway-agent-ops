@@ -99,6 +99,23 @@ class ControllerHardeningTests(unittest.TestCase):
                            state_dir=self.root):
                 pass
 
+    def test_crashed_worker_does_not_reopen_slot(self):
+        ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
+        program = "\n".join([
+            "from pathlib import Path",
+            "from gway_agent_ops.dispatch import admission",
+            f"with admission({ref!r}, {at!r}, state_dir=Path({str(self.root)!r})): pass",
+            "",
+        ])
+        child = subprocess.run([sys.executable, "-c", program],
+                               capture_output=True, text=True, timeout=10)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertFalse(status(state_dir=self.root)["available"])
+        with self.assertRaises(Busy):
+            with admission("owner/repo#2", "2026-10-13T15:01:00Z",
+                           state_dir=self.root):
+                pass
+
     def test_release_is_idempotent_and_allows_new_issue_only(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
@@ -107,7 +124,7 @@ class ControllerHardeningTests(unittest.TestCase):
                    state_dir=self.root)
             runner = Mock(side_effect=[
                 Mock(returncode=0, stdout=""),
-                Mock(returncode=3, stdout="inactive\\n")])
+                Mock(returncode=3, stdout="inactive")])
             self.assertEqual(release(ref, at, state_dir=self.root, runner=runner)["state"], "released")
             self.assertEqual(release(ref, at, state_dir=self.root, runner=runner)["state"], "already_terminal")
             self.assertEqual(runner.call_count, 2)
