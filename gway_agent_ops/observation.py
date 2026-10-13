@@ -16,6 +16,14 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         raise ValueError("invalid_timestamp")
     at = timestamp(at)
     root = Path(state_dir or DEFAULT_STATE)
+    released = root / "released" / (hashlib.sha256((ref + "\n" + at).encode()).hexdigest() + ".json")
+    if released.is_symlink():
+        raise ValueError("unsafe release path")
+    if released.exists():
+        record = json.loads(released.read_text(encoding="utf-8"))
+        if record.get("issue") != ref or record.get("at") != at:
+            raise ValueError("invalid release journal")
+        return {"issue": ref, "at": at, "state": "released"}
     ledger = root / "accepted.jsonl"
     if not ledger.exists():
         return _pending_request(root, ref, at)
