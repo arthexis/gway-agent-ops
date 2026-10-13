@@ -74,11 +74,20 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
                 return {"issue": ref, "at": at, "state": "busy"}
         finally:
             os.close(execution_fd)
-        from .admission_status import status as admission_status
-        snapshot = admission_status(state_dir=root)
-        if not snapshot["available"]:
-            return {"issue": ref, "at": at, "state": "busy",
-                    "active_issue": snapshot["active_issue"]}
+        # The submission gate is held here; do not call the status snapshot,
+        # which would interpret our own reservation as busy.
+        ledger = root / "accepted.jsonl"
+        if ledger.is_symlink():
+            raise ValueError("unsafe dispatch journal")
+        if ledger.exists():
+            for line in ledger.read_text(encoding="utf-8").splitlines():
+                accepted = json.loads(line)
+                identity = (accepted.get("issue"), accepted.get("at"))
+                if not all(isinstance(value, str) for value in identity):
+                    raise ValueError("invalid acceptance journal")
+                if observe(*identity, state_dir=root)["state"] not in _TERMINAL:
+                    return {"issue": ref, "at": at, "state": "busy",
+                            "active_issue": identity[0]}
         active = _outstanding_request(requests, root, digest)
         if active is not None:
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
