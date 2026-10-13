@@ -216,3 +216,20 @@ This projection reflects **comments**, not verified issue completion.
 The command is read-only and does not launch Codex or deliver pending
 reports. Field validation on GWAY-001 and remote Android integration remain
 separate follow-up work.
+
+## S4 — Supported Codex sound notification adoption
+
+Use `agent adopt --with-sound` to add an opt-in, copied root-level
+`notify = ["agent", "notify"]` setting to the **agent-owned** Codex
+configuration, while preserving the existing allowlisted preferences.
+Re-running the same adoption is idempotent; changes require `--force`.
+
+Codex passes one JSON argument to `agent notify`. The adapter handles
+only the documented external `agent-turn-complete` notification and
+calls `/usr/local/bin/sound --event Stop --source codex`; it does not
+forward prompts, output or arbitrary JSON fields. Unsupported types are
+ignored, and sound hardware failure is nonfatal. This is independent of
+the TUI notification settings. Other lifecycle event names previously
+considered (SessionStart, PermissionRequest, etc.) are not assumed to be
+supported by Codex's external notify API. Verify the installed Codex
+version and event behavior during S5 field validation.
