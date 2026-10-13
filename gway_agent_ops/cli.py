@@ -97,6 +97,19 @@ def main(argv=None):
         else:
             print(result["data"]["state"] if code == 0 else "Submission unavailable")
         return code
+    if args.command == "status":
+        from .admission_status import status as admission_status
+        try:
+            admission = admission_status()
+            data = status_data(active=not admission["available"])
+            data["admission"] = admission
+            result, code = envelope("status", "ok", data=data), 0
+        except (ValueError, OSError, KeyError, TypeError):
+            result, code = envelope("status", "error", error={
+                "code": "status_unavailable", "message": "Admission state unavailable"}), 1
+        print(json_line(result) if args.json else
+              (admission["state"] if code == 0 else "Status unavailable"))
+        return code
     if args.command == "release":
         from .nonblocking import release
         try:
