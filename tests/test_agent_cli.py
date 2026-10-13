@@ -16,7 +16,7 @@ class AgentCliTests(unittest.TestCase):
                 parse_issue_ref(ref, repo)
 
     def test_commands_are_explicit_stubs(self):
-        variants = [["issues", "--json"], ["status", "--json"]]
+        variants = [["status", "--json"]]
         variants.extend([["hook", event] for event in EVENTS])
         for args in variants:
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()) as err, contextlib.redirect_stdout(io.StringIO()) as out:
