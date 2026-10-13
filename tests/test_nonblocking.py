@@ -63,7 +63,7 @@ class NonblockingTests(unittest.TestCase):
             with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
                  patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
                 submit(ref, at, allowed_repositories=("owner/repo",), state_dir=root)
-                (root / "accepted.jsonl").write_text(json.dumps({"issue": ref, "at": at}) + "\\n")
+                (root / "accepted.jsonl").write_text(json.dumps({"issue": ref, "at": at}) + "\n")
                 (root / "delivered").mkdir()
                 (root / "delivered" / (_key(ref, at) + ".json")).write_text(
                     json.dumps({"status": "finished", "exit_code": 0}))
