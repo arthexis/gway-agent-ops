@@ -93,7 +93,7 @@ class NonblockingTests(unittest.TestCase):
                  patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
                 submit(ref, at, allowed_repositories=("owner/repo",), state_dir=root)
                 runner = Mock(side_effect=[Mock(returncode=0, stdout=""),
-                                           Mock(returncode=3, stdout="inactive\\n")])
+                                           Mock(returncode=3, stdout="inactive\n")])
                 self.assertEqual(release(ref, at, state_dir=root, runner=runner)["state"], "released")
                 self.assertEqual(observe(ref, at, state_dir=root)["state"], "released")
                 self.assertEqual(submit(ref, at, allowed_repositories=("owner/repo",),
