@@ -1,0 +1,39 @@
+---
+# Run via Gway Remote's approved deployment executor, after installing Agent Ops.
+# This playbook only verifies; it never deploys unreviewed source or runs Codex.
+- name: Verify Agent Ops on target
+  hosts: gway_agent_ops
+  gather_facts: false
+  vars:
+    gway_agent_ops_user: arthe
+    gway_agent_ops_python: python3
+    gway_agent_ops_checkout: /opt/gway-agent-ops
+  tasks:
+    - name: Resolve agent user UID
+      ansible.builtin.command:
+        argv: [id, -u, "{{ gway_agent_ops_user }}"]
+      register: gway_agent_ops_identity
+      changed_when: false
+
+    - name: Execute contained systemd integration probe
+      ansible.builtin.command:
+        argv:
+          - "{{ gway_agent_ops_python }}"
+          - "{{ gway_agent_ops_checkout }}/scripts/systemd_integration_probe.py"
+          - --json
+        chdir: "{{ gway_agent_ops_checkout }}"
+      become: true
+      become_user: "{{ gway_agent_ops_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ gway_agent_ops_identity.stdout }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ gway_agent_ops_uid }}/bus"
+        PYTHONPATH: "{{ gway_agent_ops_checkout }}"
+      register: gway_agent_ops_probe
+      changed_when: false
+      failed_when: >-
+        gway_agent_ops_probe.rc != 0 or
+        (gway_agent_ops_probe.stdout | from_json).result != 'passed'
+
+    - name: Show machine-readable verification result
+      ansible.builtin.debug:
+        msg: "{{ gway_agent_ops_probe.stdout | from_json }}"
