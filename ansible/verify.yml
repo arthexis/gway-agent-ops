@@ -9,6 +9,12 @@
     gway_agent_ops_python: python3
     gway_agent_ops_checkout: /opt/gway-agent-ops
   tasks:
+    - name: Resolve agent user UID
+      ansible.builtin.command:
+        argv: [id, -u, "{{ gway_agent_ops_user }}"]
+      register: gway_agent_ops_identity
+      changed_when: false
+
     - name: Execute contained systemd integration probe
       ansible.builtin.command:
         argv:
@@ -19,7 +25,7 @@
       become: true
       become_user: "{{ gway_agent_ops_user }}"
       environment:
-        XDG_RUNTIME_DIR: "/run/user/{{ gway_agent_ops_uid }}"
+        XDG_RUNTIME_DIR: "/run/user/{{ gway_agent_ops_identity.stdout }}"
         DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ gway_agent_ops_uid }}/bus"
         PYTHONPATH: "{{ gway_agent_ops_checkout }}"
       register: gway_agent_ops_probe
