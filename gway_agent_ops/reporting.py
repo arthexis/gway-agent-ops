@@ -71,10 +71,11 @@ def deliver(record: dict, *, runner=subprocess.run) -> None:
     """Idempotent against successfully posted but locally unacknowledged reports."""
     repository, number = record["issue"].rsplit("#", 1)
     endpoint = f"repos/{repository}/issues/{number}/comments"
-    existing = _api([endpoint, "--paginate"], runner=runner)
-    if not isinstance(existing, list):
+    pages = _api([endpoint, "--paginate", "--slurp"], runner=runner)
+    if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
         raise RuntimeError("github_reporting_invalid_response")
-    if any(record["marker"] in str(row.get("body", "")) for row in existing if isinstance(row, dict)):
+    if any(record["marker"] in str(row.get("body", ""))
+           for page in pages for row in page if isinstance(row, dict)):
         return
     message = (f"Agent invocation {record['at']}: {record['status']}."
                + (f" Codex exit code: {record['exit_code']}." if record["exit_code"] is not None else "")
