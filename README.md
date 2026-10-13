@@ -53,3 +53,12 @@ Unavailable usage is represented as `null`, not zero. Issue rows include
 `repository`, `number`, `title`, canonical `url`, `state`
 (`open`, `sent`, or `attended`), cumulative `comments`, and `sent_at`.
 Agent Ops will own actual providers and issue retrieval in later chunks.
+
+## A2.1: read-only adoption inspection
+
+Run `agent adopt --check` (or `agent adopt --check --json`) to inspect
+Codex executable availability, `CODEX_HOME` / `~/.codex` configuration
+and auth-file **metadata**, and API-key presence without reading or printing
+secrets. This command never provisions identity or copies files; regular
+`agent adopt` still fails explicitly until A2.2. Adoption will create a
+separate agent-owned configuration copy, not a live link.
