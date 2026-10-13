@@ -10,6 +10,9 @@ import tempfile
 import time
 import uuid
 
+from gway_agent_ops.dispatch import admission, Busy
+from gway_agent_ops.admission_status import status
+
 
 def run(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
@@ -53,8 +56,27 @@ def verify() -> dict:
                 "inactive", "failed", "unknown"
             ):
                 raise RuntimeError("inactive_unconfirmed")
+            controller = root / "controller"
+            controller.mkdir(mode=0o700)
+            with admission("arthexis/probe#1", "2026-10-01T00:00:00Z",
+                           state_dir=controller):
+                child_program = "\n".join([
+                    "from pathlib import Path",
+                    "from gway_agent_ops.dispatch import admission, Busy",
+                    "try:",
+                    " with admission('arthexis/probe#2', '2026-10-01T00:01:00Z', "
+                    + "state_dir=Path(" + repr(str(controller)) + ")): pass",
+                    "except Busy: raise SystemExit(42)",
+                    "",
+                ])
+                contender = run("python3", "-c", child_program)
+                if contender.returncode != 42:
+                    raise RuntimeError("cross_process_exclusion_failed")
+            if status(state_dir=controller)["available"]:
+                raise RuntimeError("durable_reservation_lost")
             return {"result": "passed", "launch": True, "stop": True,
-                    "inactive": True, "isolated": True}
+                    "inactive": True, "cross_process_exclusion": True,
+                    "durable_reservation": True, "isolated": True}
         finally:
             # Always attempt cleanup, even when verification fails.
             run("systemctl", "--user", "stop", unit + ".service")
