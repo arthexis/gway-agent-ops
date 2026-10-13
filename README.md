@@ -94,3 +94,19 @@ invocations retain the permissions of the Linux account launching them.
 The CLI/adopter should be invoked under the intended GWAY-001 user; Remote
 must not receive credential files or inherit arbitrary command execution.
 A2.4 will validate this environment end-to-end before Codex execution lands.
+
+## A2.4: verify the copied agent runtime
+
+Run `agent adopt --verify` or `agent adopt --verify --json` to check the
+copied Codex configuration and optional credential file **without running
+Codex, reading usage budgets, or calling GitHub**. This verifies private
+permissions, parses the copied TOML and checks the JSON structure of existing
+authentication. Auth values and detailed parsing failures never appear in
+output. A missing credential is reported independently from configuration
+readiness: some installations may use another supported authentication
+mechanism in a later integration. Exit 0 means the copied configuration is
+structurally ready; exit 1 indicates a missing/unsafe/invalid configuration.
+
+Atomic adoption commits remain authoritative even if a previous process left
+an incomplete `.agent-adopt-*.tmp` file. Verification ignores such temporary
+files and never deletes them automatically.
