@@ -4,7 +4,7 @@ import re
 import sys
 from .contracts import envelope, json_line, status_data
 from . import __version__
-from .adopt import inspect
+from .adopt import inspect, adopt as adopt_config
 
 REF = re.compile(r"^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -37,6 +37,8 @@ def build_parser():
         sub.add_parser(name).add_argument("--json", action="store_true")
     adopt = sub.add_parser("adopt")
     adopt.add_argument("--check", action="store_true")
+    adopt.add_argument("--include-auth", action="store_true")
+    adopt.add_argument("--force", action="store_true")
     adopt.add_argument("--json", action="store_true")
     hook = sub.add_parser("hook")
     hook.add_argument("event", choices=EVENTS)
@@ -61,6 +63,20 @@ def main(argv=None):
             print("Configuration: " + ("readable" if data["config"]["readable"] else "unavailable"))
             print("Authentication: " + data["authentication"]["status"])
             print("Adoption: read-only check; no changes made")
+        return 0
+    if args.command == "adopt":
+        try:
+            result = adopt_config(include_auth=args.include_auth, force=args.force)
+        except (OSError, ValueError) as exc:
+            if args.json:
+                print(json_line(envelope("adopt", "error", error={"code": "adoption_failed", "message": str(exc)})))
+            else:
+                print(f"agent adopt: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json_line(envelope("adopt", "ok", data=result)))
+        else:
+            print("Agent configuration copied to " + result["destination"])
         return 0
     if args.json:
         print(json_line(envelope(
