@@ -1,0 +1,37 @@
+---
+# Optional post-install smoke verification; never deploys or executes agent tasks.
+- name: Verify Agent Ops transient user-systemd support
+  hosts: gway_agent_ops
+  gather_facts: false
+  vars:
+    gway_agent_ops_user: arthe
+    gway_agent_ops_python: python3
+    gway_agent_ops_checkout: /opt/gway-agent-ops
+  tasks:
+    - name: Resolve service account UID
+      ansible.builtin.command:
+        argv: [id, -u, "{{ gway_agent_ops_user }}"]
+      register: gway_agent_ops_identity
+      changed_when: false
+
+    - name: Run isolated user-systemd probe
+      ansible.builtin.command:
+        argv:
+          - "{{ gway_agent_ops_python }}"
+          - "{{ gway_agent_ops_checkout }}/scripts/systemd_integration_probe.py"
+          - --json
+        chdir: "{{ gway_agent_ops_checkout }}"
+      become: true
+      become_user: "{{ gway_agent_ops_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ gway_agent_ops_identity.stdout }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ gway_agent_ops_identity.stdout }}/bus"
+      register: gway_agent_ops_probe
+      changed_when: false
+      failed_when: >-
+        gway_agent_ops_probe.rc != 0 or
+        (gway_agent_ops_probe.stdout | from_json).result != 'passed'
+
+    - name: Display verification result
+      ansible.builtin.debug:
+        msg: "{{ gway_agent_ops_probe.stdout | from_json }}"
