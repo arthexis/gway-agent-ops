@@ -163,10 +163,17 @@ class TaskLedger:
             raise
 
     def next_approved(self):
-        row = self.db.execute(
+        """Read-only eligible candidate view, not execution authorization."""
+        rows = self.db.execute(
             "SELECT * FROM tasks WHERE state='approved' "
-            "ORDER BY priority,created_at,id LIMIT 1").fetchone()
-        return dict(row) if row else None
+            "ORDER BY priority,created_at,id").fetchall()
+        for row in rows:
+            try:
+                self.require_eligible(row["issue"])
+            except ValueError:
+                continue
+            return dict(row)
+        return None
 
     def recover(self):
         """Fail closed after interruption; never return running work to approved."""
