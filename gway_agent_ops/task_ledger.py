@@ -129,6 +129,18 @@ class TaskLedger:
             self.db.execute("ROLLBACK")
             raise
 
+    def discover_verified(self, issue, *, resolver=None):
+        """Opt-in discovery, validated against GitHub; no Codex execution."""
+        from .github_issues import resolve, IssueRejected
+        self.require_eligible(issue)
+        check = resolver or resolve
+        data = check(issue, allowed_repositories=tuple(self.registry_status()["repositories"]))
+        if data["state"] != "open" or data["creator"].casefold() != "arthexis":
+            raise IssueRejected("untrusted_issue")
+        if "local-agent" not in data.get("labels", []):
+            raise IssueRejected("missing_opt_in_label")
+        return self.discover(issue)
+
     def decide(self, issue, action, *, actor, reason=""):
         if not isinstance(actor, str) or not actor.strip() or actor == "github":
             raise ValueError("explicit operator identity required")
