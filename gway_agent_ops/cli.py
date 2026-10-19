@@ -74,6 +74,7 @@ def build_parser():
     registry = sub.add_parser("registry", help="Inspect or import validated Remote targets; no execution")
     registry.add_argument("--json", action="store_true")
     registry.add_argument("--refresh-file", type=Path, help="Read a Remote deploy-targets JSON snapshot")
+    registry.add_argument("--sync", action="store_true", help="Read installed gway-remote deploy-targets export")
     return parser
 
 
@@ -97,6 +98,7 @@ def main(argv=None):
                 if args.issue is not None:
                     data["tasks"] = [row for row in data["tasks"] if row["issue"] == args.issue]
                     data["events"] = ledger.events_for(args.issue)
+                    data["provenance"] = ledger.provenance_for(args.issue)
             result, code = envelope("tasks", "ok", data=data), 0
         except (OSError, ValueError):
             result, code = envelope("tasks", "error", error={
@@ -111,6 +113,18 @@ def main(argv=None):
                        str(Path.home() / ".local/state/gway-agent-ops/tasks.sqlite3")))
         try:
             with TaskLedger(path) as ledger:
+                if args.sync and args.refresh_file is not None:
+                    raise ValueError("choose --sync or --refresh-file")
+                if args.sync:
+                    import subprocess
+                    try:
+                        output = subprocess.run(
+                            ["gway-remote", "deploy-targets", "--json"],
+                            capture_output=True, text=True, check=True, timeout=20)
+                        ledger.refresh_repositories(output.stdout)
+                    except (OSError, subprocess.SubprocessError, ValueError):
+                        ledger.invalidate_registry()
+                        raise ValueError("Remote target export unavailable")
                 if args.refresh_file is not None:
                     try:
                         raw = args.refresh_file.read_text(encoding="utf-8")
