@@ -68,6 +68,8 @@ def build_parser():
     hook = sub.add_parser("hook")
     hook.add_argument("event", choices=EVENTS)
     hook.add_argument("--json", action="store_true")
+    discovery = sub.add_parser("discover-tick", help="One read-only discovery pass; no execution")
+    discovery.add_argument("--json", action="store_true")
     tasks = sub.add_parser("tasks", help="Read durable task ledger; never dispatch")
     tasks.add_argument("--json", action="store_true")
     tasks.add_argument("--issue", help="Optional issue identity for task and audit events")
@@ -88,6 +90,22 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "discover-tick":
+        from .task_ledger import TaskLedger
+        from .discovery_worker import tick
+        path = Path(os.environ.get("GWAY_AGENT_LEDGER_PATH",
+                       str(Path.home() / ".local/state/gway-agent-ops/tasks.sqlite3")))
+        try:
+            with TaskLedger(path) as ledger:
+                data = tick(ledger)
+            print(json_line(envelope("discover-tick",
+                                     "degraded" if data["errors"] else "ok", data=data)))
+            return 1 if data["errors"] else 0
+        except (OSError, ValueError) as exc:
+            print(json_line(envelope("discover-tick", "error",
+                                     error={"code": "discovery_unavailable",
+                                            "message": str(exc)})))
+            return 1
     if args.command == "tasks":
         from .task_ledger import TaskLedger
         path = Path(os.environ.get("GWAY_AGENT_LEDGER_PATH",
