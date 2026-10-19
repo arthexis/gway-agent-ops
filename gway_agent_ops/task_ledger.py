@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
+import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +22,11 @@ class TaskLedger:
         self.path = Path(path)
         _private_directory(self.path.parent)
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=10)
+        info = self.path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            self.db.close()
+            raise PermissionError("ledger must be an owned regular file")
+        os.chmod(self.path, 0o600)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA busy_timeout=10000")
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -59,13 +66,16 @@ class TaskLedger:
         try:
             revision, repos = parse_snapshot(raw)
         except (ValueError, TypeError):
-            self.db.execute("UPDATE repository_registry SET healthy=0 WHERE id=1")
+            self.invalidate_registry()
             raise ValueError("repository registry unavailable or invalid")
         self.db.execute("""INSERT INTO repository_registry VALUES(1,?,?,?,1)
             ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
             refreshed_at=excluded.refreshed_at,repositories=excluded.repositories,healthy=1""",
             (revision, utc_now(), json.dumps(repos)))
         return repos
+
+    def invalidate_registry(self):
+        self.db.execute("UPDATE repository_registry SET healthy=0 WHERE id=1")
 
     def registry_status(self):
         import json
