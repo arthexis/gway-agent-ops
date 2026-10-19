@@ -216,3 +216,16 @@ def test_task_audit_views(tmp_path):
         assert [row["issue"] for row in ledger.list_tasks()] == [ISSUE]
         assert [row["action"] for row in ledger.events_for(ISSUE)] == [
             "discovered", "veto"]
+
+def test_provenance_is_idempotent_and_cannot_reassign(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.attach_provenance(ISSUE, "gway-remote", "legacy-123")
+        ledger.attach_provenance(ISSUE, "gway-remote", "legacy-123")
+        assert len(ledger.provenance_for(ISSUE)) == 1
+        assert ledger.get(ISSUE)["state"] == "requested"
+        other = "arthexis/gway-remote#7"
+        ledger.discover(other)
+        with pytest.raises(ValueError):
+            ledger.attach_provenance(other, "gway-remote", "legacy-123")
