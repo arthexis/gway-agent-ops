@@ -141,6 +141,25 @@ class TaskLedger:
             raise IssueRejected("missing_opt_in_label")
         return self.discover(issue)
 
+    def reconcile_issue(self, issue, *, resolver=None):
+        """Verify withdrawal without treating GitHub outages as removal."""
+        from .github_issues import resolve, IssueRejected
+        self.require_eligible(issue)
+        check = resolver or resolve
+        try:
+            data = check(issue, allowed_repositories=tuple(self.registry_status()["repositories"]))
+        except IssueRejected as exc:
+            if exc.code != "issue_not_open":
+                raise
+            data = {"state": "closed", "labels": []}
+        if data["state"] == "open" and "local-agent" in data.get("labels", []):
+            return self.get(issue)
+        task = self.get(issue)
+        if task is None or task["state"] not in ("requested", "approved"):
+            return task
+        action = "withdraw_approved" if task["state"] == "approved" else "withdraw"
+        return self.decide(issue, action, actor="discovery", reason="verified issue withdrawal")
+
     def decide(self, issue, action, *, actor, reason=""):
         if not isinstance(actor, str) or not actor.strip() or actor == "github":
             raise ValueError("explicit operator identity required")
