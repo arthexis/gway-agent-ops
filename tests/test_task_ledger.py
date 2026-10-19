@@ -128,3 +128,28 @@ def test_invalid_registry_entries(targets):
     from gway_agent_ops.repository_registry import validate_snapshot
     with pytest.raises(ValueError):
         validate_snapshot({"schema": 1, "revision": "a" * 40, "targets": targets})
+
+def test_discovery_requires_trusted_open_labeled_issue(tmp_path):
+    from gway_agent_ops.github_issues import IssueRejected
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        def valid(issue, *, allowed_repositories):
+            assert issue.split("#")[0] in allowed_repositories
+            return {"state": "open", "creator": "arthexis", "labels": ["local-agent"]}
+        assert ledger.discover_verified(ISSUE, resolver=valid)["state"] == "requested"
+        def unlabeled(issue, *, allowed_repositories):
+            return {"state": "open", "creator": "arthexis", "labels": []}
+        with pytest.raises(IssueRejected):
+            ledger.discover_verified("arthexis/gway-agent-ops#27", resolver=unlabeled)
+        assert ledger.get("arthexis/gway-agent-ops#27") is None
+
+
+def test_removed_repo_is_not_next_approved(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "approve", actor="operator")
+        ledger.refresh_repositories(json.dumps({"schema": 1, "revision": "b" * 40,
+            "targets": [{"name": "remote", "repository": "arthexis/gway-remote"}]}))
+        assert ledger.next_approved() is None
+        assert ledger.get(ISSUE)["state"] == "approved"
