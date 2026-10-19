@@ -2,7 +2,7 @@
 import json
 import re
 
-REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37})/[A-Za-z0-9_.-]+")
 SHA = re.compile(r"[0-9a-f]{40}")
 
 def validate_snapshot(payload):
@@ -18,7 +18,7 @@ def validate_snapshot(payload):
         if not isinstance(item, dict) or set(item) != {"name", "repository"}:
             raise ValueError("invalid target")
         name, repo = item["name"], item["repository"]
-        if not isinstance(name, str) or not name or name in names or not isinstance(repo, str) or not REPO.fullmatch(repo) or repo in repos:
+        if not isinstance(name, str) or not name or name in names or not isinstance(repo, str) or not REPO.fullmatch(repo) or repo.split("/", 1)[1] in (".", "..") or repo in repos:
             raise ValueError("duplicate or invalid target")
         names.add(name)
         repos.add(repo)
