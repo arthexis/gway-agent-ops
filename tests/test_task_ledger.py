@@ -153,3 +153,42 @@ def test_removed_repo_is_not_next_approved(tmp_path):
             "targets": [{"name": "remote", "repository": "arthexis/gway-remote"}]}))
         assert ledger.next_approved() is None
         assert ledger.get(ISSUE)["state"] == "approved"
+
+def test_reconciliation_withdraws_only_on_verified_label_removal(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "approve", actor="operator")
+        def removed(issue, *, allowed_repositories):
+            return {"state": "open", "labels": []}
+        assert ledger.reconcile_issue(ISSUE, resolver=removed)["state"] == "withdrawn"
+        assert ledger.next_approved() is None
+        assert ledger.db.execute(
+            "SELECT count(*) FROM events WHERE action='withdraw_approved'").fetchone()[0] == 1
+
+
+def test_reconciliation_network_failure_preserves_approval(tmp_path):
+    from gway_agent_ops.github_issues import IssueRejected
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "approve", actor="operator")
+        def offline(issue, *, allowed_repositories):
+            raise IssueRejected("github_unavailable")
+        with pytest.raises(IssueRejected):
+            ledger.reconcile_issue(ISSUE, resolver=offline)
+        assert ledger.get(ISSUE)["state"] == "approved"
+
+
+def test_reconciliation_closed_issue_and_veto_preservation(tmp_path):
+    from gway_agent_ops.github_issues import IssueRejected
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        def closed(issue, *, allowed_repositories):
+            raise IssueRejected("issue_not_open")
+        assert ledger.reconcile_issue(ISSUE, resolver=closed)["state"] == "withdrawn"
+        other = "arthexis/gway-remote#2"
+        ledger.discover(other)
+        ledger.decide(other, "veto", actor="operator", reason="hold")
+        assert ledger.reconcile_issue(other, resolver=closed)["state"] == "vetoed"
