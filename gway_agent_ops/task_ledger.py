@@ -4,7 +4,7 @@ from __future__ import annotations
 import sqlite3
 import os
 import stat
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .dispatch import ISSUE, _private_directory
@@ -80,15 +80,26 @@ class TaskLedger:
     def registry_status(self):
         import json
         row = self.db.execute("SELECT * FROM repository_registry WHERE id=1").fetchone()
-        return {"healthy": bool(row["healthy"]) if row else False,
+        fresh = bool(row and row["healthy"] and datetime.fromisoformat(row["refreshed_at"]) >= datetime.now(timezone.utc) - timedelta(hours=1))
+        return {"healthy": fresh,
                 "revision": row["revision"] if row else None,
                 "refreshed_at": row["refreshed_at"] if row else None,
-                "repositories": json.loads(row["repositories"]) if row else []}
+                "repositories": json.loads(row["repositories"]) if row else [],
+                "stale": bool(row and not fresh)}
 
     def require_eligible(self, issue):
         status = self.registry_status()
         if not status["healthy"] or issue.split("#", 1)[0] not in status["repositories"]:
             raise ValueError("repository not eligible or registry unavailable")
+
+    def list_tasks(self):
+        return [dict(row) for row in self.db.execute(
+            "SELECT * FROM tasks ORDER BY priority,created_at,id")]
+
+    def events_for(self, issue):
+        return [dict(row) for row in self.db.execute(
+            "SELECT e.* FROM events e JOIN tasks t ON t.id=e.task_id "
+            "WHERE t.issue=? ORDER BY e.id", (issue,))]
 
     def close(self):
         self.db.close()
