@@ -67,7 +67,7 @@ def tick(ledger: TaskLedger, *, snapshot=remote_snapshot, listing=list_opted_in,
             report["errors"].append(f"reconcile_unavailable:{task['issue']}")
     return report
 
-def run_forever(*, ledger_path, interval=60, stop=None, sleep=time.sleep,
+def run_forever(*, ledger_path, interval=60, stop=None, sleep=time.sleep, wake=None,
                 open_ledger=TaskLedger, iteration=tick, report=None):
     """Sequential discovery loop. Never runs a task; errors do not stop polling.
 
@@ -88,4 +88,7 @@ def run_forever(*, ledger_path, interval=60, stop=None, sleep=time.sleep,
         emit(result)
         if should_stop():
             break
-        sleep(interval)
+        if wake is None:
+            sleep(interval)
+        else:
+            wake.wait(interval)
