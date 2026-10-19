@@ -68,6 +68,9 @@ def build_parser():
     hook = sub.add_parser("hook")
     hook.add_argument("event", choices=EVENTS)
     hook.add_argument("--json", action="store_true")
+    tasks = sub.add_parser("tasks", help="Read durable task ledger; never dispatch")
+    tasks.add_argument("--json", action="store_true")
+    tasks.add_argument("--issue", help="Optional issue identity for task and audit events")
     registry = sub.add_parser("registry", help="Inspect or import validated Remote targets; no execution")
     registry.add_argument("--json", action="store_true")
     registry.add_argument("--refresh-file", type=Path, help="Read a Remote deploy-targets JSON snapshot")
@@ -84,6 +87,23 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "tasks":
+        from .task_ledger import TaskLedger
+        path = Path(os.environ.get("GWAY_AGENT_LEDGER_PATH",
+                       str(Path.home() / ".local/state/gway-agent-ops/tasks.sqlite3")))
+        try:
+            with TaskLedger(path) as ledger:
+                data = {"tasks": ledger.list_tasks(), "registry": ledger.registry_status()}
+                if args.issue is not None:
+                    data["tasks"] = [row for row in data["tasks"] if row["issue"] == args.issue]
+                    data["events"] = ledger.events_for(args.issue)
+            result, code = envelope("tasks", "ok", data=data), 0
+        except (OSError, ValueError):
+            result, code = envelope("tasks", "error", error={
+                "code": "ledger_unavailable", "message": "Task ledger unavailable"}), 1
+        print(json_line(result) if args.json else
+              (data["tasks"] if code == 0 else "Task ledger unavailable"))
+        return code
     if args.command == "registry":
         from .task_ledger import TaskLedger
         import json
