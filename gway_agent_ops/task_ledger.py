@@ -109,13 +109,19 @@ class TaskLedger:
         task = self.get(issue)
         if task is None:
             raise ValueError("unknown task")
-        self.db.execute("INSERT OR IGNORE INTO provenance VALUES(?,?,?,?)",
-                        (task["id"], origin, external_id, utc_now()))
-        row = self.db.execute(
-            "SELECT task_id FROM provenance WHERE origin=? AND external_id=?",
-            (origin, external_id)).fetchone()
-        if row["task_id"] != task["id"]:
-            raise ValueError("provenance identity conflict")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute("INSERT OR IGNORE INTO provenance VALUES(?,?,?,?)",
+                            (task["id"], origin, external_id, utc_now()))
+            row = self.db.execute(
+                "SELECT task_id FROM provenance WHERE origin=? AND external_id=?",
+                (origin, external_id)).fetchone()
+            if row["task_id"] != task["id"]:
+                raise ValueError("provenance identity conflict")
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
 
     def provenance_for(self, issue):
         return [dict(row) for row in self.db.execute(
