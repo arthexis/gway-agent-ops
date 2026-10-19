@@ -229,3 +229,15 @@ def test_provenance_is_idempotent_and_cannot_reassign(tmp_path):
         ledger.discover(other)
         with pytest.raises(ValueError):
             ledger.attach_provenance(other, "gway-remote", "legacy-123")
+
+def test_provenance_conflict_is_atomic(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        other = "arthexis/gway-remote#9"
+        ledger.discover(other)
+        ledger.attach_provenance(ISSUE, "gway-remote", "legacy-9")
+        with pytest.raises(ValueError):
+            ledger.attach_provenance(other, "gway-remote", "legacy-9")
+        assert ledger.provenance_for(other) == []
+        assert len(ledger.provenance_for(ISSUE)) == 1
