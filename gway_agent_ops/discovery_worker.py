@@ -2,6 +2,8 @@
 import json
 import os
 import subprocess
+import time
+import sqlite3
 
 from .github_issues import IssueRejected
 from .task_ledger import TaskLedger
@@ -64,3 +66,26 @@ def tick(ledger: TaskLedger, *, snapshot=remote_snapshot, listing=list_opted_in,
         except (IssueRejected, ValueError):
             report["errors"].append(f"reconcile_unavailable:{task['issue']}")
     return report
+
+def run_forever(*, ledger_path, interval=60, stop=None, sleep=time.sleep,
+                open_ledger=TaskLedger, iteration=tick, report=None):
+    """Sequential discovery loop. Never runs a task; errors do not stop polling.
+
+    A caller-owned stop predicate permits graceful shutdown without signal handlers.
+    Each iteration closes its SQLite connection before sleeping.
+    """
+    if not isinstance(interval, (int, float)) or isinstance(interval, bool) or not 5 <= interval <= 3600:
+        raise ValueError("interval must be between 5 and 3600 seconds")
+    should_stop = stop or (lambda: False)
+    emit = report or (lambda result: None)
+    while not should_stop():
+        try:
+            with open_ledger(ledger_path) as ledger:
+                result = iteration(ledger)
+        except (OSError, ValueError, sqlite3.Error):
+            result = {"discovered": 0, "reconciled": 0,
+                      "errors": ["discovery_iteration_failed"]}
+        emit(result)
+        if should_stop():
+            break
+        sleep(interval)
