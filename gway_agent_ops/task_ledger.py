@@ -52,6 +52,14 @@ class TaskLedger:
             );
         """)
 
+        self.db.execute("""CREATE TABLE IF NOT EXISTS provenance (
+            task_id INTEGER NOT NULL REFERENCES tasks(id),
+            origin TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            PRIMARY KEY(origin,external_id)
+        )""")
+
         self.db.execute("""CREATE TABLE IF NOT EXISTS repository_registry (
             id INTEGER PRIMARY KEY CHECK(id=1),
             revision TEXT NOT NULL,
@@ -91,6 +99,28 @@ class TaskLedger:
         status = self.registry_status()
         if not status["healthy"] or issue.split("#", 1)[0] not in status["repositories"]:
             raise ValueError("repository not eligible or registry unavailable")
+
+    def attach_provenance(self, issue, origin, external_id):
+        """Idempotent linkage only; never imports authorization."""
+        if origin not in ("gway-remote", "agent-ops-dispatch"):
+            raise ValueError("invalid provenance origin")
+        if not isinstance(external_id, str) or not external_id.strip():
+            raise ValueError("invalid external id")
+        task = self.get(issue)
+        if task is None:
+            raise ValueError("unknown task")
+        self.db.execute("INSERT OR IGNORE INTO provenance VALUES(?,?,?,?)",
+                        (task["id"], origin, external_id, utc_now()))
+        row = self.db.execute(
+            "SELECT task_id FROM provenance WHERE origin=? AND external_id=?",
+            (origin, external_id)).fetchone()
+        if row["task_id"] != task["id"]:
+            raise ValueError("provenance identity conflict")
+
+    def provenance_for(self, issue):
+        return [dict(row) for row in self.db.execute(
+            "SELECT p.* FROM provenance p JOIN tasks t ON t.id=p.task_id "
+            "WHERE t.issue=? ORDER BY p.origin,p.external_id", (issue,))]
 
     def list_tasks(self):
         return [dict(row) for row in self.db.execute(
