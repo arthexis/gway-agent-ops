@@ -53,7 +53,10 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
         if (not isinstance(payload["title"], str) or not isinstance(payload.get("body"), (str, type(None)))
                 or type(payload.get("comments")) is not int or payload["comments"] < 0):
             raise IssueRejected("invalid_issue")
-        return {"repository": repository, "number": number,
+        labels = payload.get("labels", [])
+        if not isinstance(labels, list) or any(not isinstance(x, dict) or not isinstance(x.get("name"), str) for x in labels):
+            raise IssueRejected("invalid_issue_labels")
+        return {"labels": [x["name"] for x in labels], "repository": repository, "number": number,
                 "title": payload["title"], "body": payload.get("body") or "",
                 "url": f"https://github.com/{repository}/issues/{number}",
                 "creator": payload["user"]["login"], "state": "open",
