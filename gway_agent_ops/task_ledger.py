@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .dispatch import ISSUE, _private_directory
+from .repository_registry import parse_snapshot
 
 
 def utc_now():
@@ -44,6 +45,41 @@ class TaskLedger:
             );
         """)
 
+        self.db.execute("""CREATE TABLE IF NOT EXISTS repository_registry (
+            id INTEGER PRIMARY KEY CHECK(id=1),
+            revision TEXT NOT NULL,
+            refreshed_at TEXT NOT NULL,
+            repositories TEXT NOT NULL,
+            healthy INTEGER NOT NULL
+        )""")
+
+    def refresh_repositories(self, raw):
+        """Apply validated Remote export, or fail closed on invalid refresh."""
+        import json
+        try:
+            revision, repos = parse_snapshot(raw)
+        except (ValueError, TypeError):
+            self.db.execute("UPDATE repository_registry SET healthy=0 WHERE id=1")
+            raise ValueError("repository registry unavailable or invalid")
+        self.db.execute("""INSERT INTO repository_registry VALUES(1,?,?,?,1)
+            ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,
+            refreshed_at=excluded.refreshed_at,repositories=excluded.repositories,healthy=1""",
+            (revision, utc_now(), json.dumps(repos)))
+        return repos
+
+    def registry_status(self):
+        import json
+        row = self.db.execute("SELECT * FROM repository_registry WHERE id=1").fetchone()
+        return {"healthy": bool(row["healthy"]) if row else False,
+                "revision": row["revision"] if row else None,
+                "refreshed_at": row["refreshed_at"] if row else None,
+                "repositories": json.loads(row["repositories"]) if row else []}
+
+    def require_eligible(self, issue):
+        status = self.registry_status()
+        if not status["healthy"] or issue.split("#", 1)[0] not in status["repositories"]:
+            raise ValueError("repository not eligible or registry unavailable")
+
     def close(self):
         self.db.close()
 
@@ -67,6 +103,7 @@ class TaskLedger:
             raise ValueError("invalid issue")
         if type(priority) is not int or priority not in range(4):
             raise ValueError("invalid priority")
+        self.require_eligible(issue)
         self.db.execute("BEGIN IMMEDIATE")
         try:
             stamp = utc_now()
@@ -98,6 +135,8 @@ class TaskLedger:
         if action.startswith("veto") and not reason.strip():
             raise ValueError("veto requires reason")
         expected, target = transitions[action]
+        if action == "approve":
+            self.require_eligible(issue)
         self.db.execute("BEGIN IMMEDIATE")
         try:
             updated = self.db.execute(
