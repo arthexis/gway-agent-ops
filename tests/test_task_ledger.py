@@ -192,3 +192,27 @@ def test_reconciliation_closed_issue_and_veto_preservation(tmp_path):
         ledger.discover(other)
         ledger.decide(other, "veto", actor="operator", reason="hold")
         assert ledger.reconcile_issue(other, resolver=closed)["state"] == "vetoed"
+
+def test_stale_registry_blocks_admission_without_erasing_history(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "veto", actor="operator", reason="hold")
+        ledger.db.execute(
+            "UPDATE repository_registry SET refreshed_at=? WHERE id=1",
+            ("2020-01-01T00:00:00+00:00",))
+        assert ledger.registry_status()["stale"] is True
+        assert ledger.registry_status()["healthy"] is False
+        with pytest.raises(ValueError):
+            ledger.discover("arthexis/gway-remote#3")
+        assert ledger.get(ISSUE)["state"] == "vetoed"
+
+
+def test_task_audit_views(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "veto", actor="operator", reason="review")
+        assert [row["issue"] for row in ledger.list_tasks()] == [ISSUE]
+        assert [row["action"] for row in ledger.events_for(ISSUE)] == [
+            "discovered", "veto"]
