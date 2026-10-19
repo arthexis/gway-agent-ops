@@ -5,11 +5,21 @@ import pytest
 from gway_agent_ops.task_ledger import TaskLedger
 
 
+import json
+
+SNAPSHOT = json.dumps({"schema": 1, "revision": "a" * 40, "targets": [
+    {"name": "agent", "repository": "arthexis/gway-agent-ops"},
+    {"name": "remote", "repository": "arthexis/gway-remote"}]})
+
+def ready(ledger):
+    ledger.refresh_repositories(SNAPSHOT)
+
 ISSUE = "arthexis/gway-agent-ops#26"
 
 
 def test_discovery_is_idempotent_and_never_approves(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
         first = ledger.discover(ISSUE)
         assert first["state"] == "requested"
         assert ledger.discover(ISSUE)["id"] == first["id"]
@@ -19,6 +29,7 @@ def test_discovery_is_idempotent_and_never_approves(tmp_path):
 
 def test_operator_approval_and_priority(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
         ledger.discover(ISSUE)
         ledger.discover("arthexis/gway-remote#1", priority=0)
         with pytest.raises(ValueError):
@@ -32,11 +43,13 @@ def test_operator_approval_and_priority(tmp_path):
 def test_veto_persists_and_requires_fresh_approval(tmp_path):
     path = tmp_path / "ledger.sqlite"
     with TaskLedger(path) as ledger:
+        ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "veto", actor="operator", reason="not ready")
         with pytest.raises(ValueError):
             ledger.decide(ISSUE, "approve", actor="operator")
     with TaskLedger(path) as ledger:
+        ready(ledger)
         assert ledger.discover(ISSUE)["state"] == "vetoed"
         ledger.decide(ISSUE, "lift_veto", actor="operator")
         assert ledger.next_approved() is None
@@ -47,6 +60,7 @@ def test_veto_persists_and_requires_fresh_approval(tmp_path):
 
 def test_withdrawal_does_not_erase_history(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
         ledger.decide(ISSUE, "withdraw_approved", actor="operator")
@@ -56,6 +70,7 @@ def test_withdrawal_does_not_erase_history(tmp_path):
 
 def test_recovery_never_requeues(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
         ledger.db.execute("UPDATE tasks SET state='running' WHERE issue=?", (ISSUE,))
@@ -67,6 +82,7 @@ def test_recovery_never_requeues(tmp_path):
 
 def test_reject_invalid_input(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
         with pytest.raises(ValueError):
             ledger.discover("../invalid")
         with pytest.raises(ValueError):
@@ -74,3 +90,41 @@ def test_reject_invalid_input(tmp_path):
         ledger.discover(ISSUE)
         with pytest.raises(ValueError):
             ledger.decide(ISSUE, "veto", actor="operator", reason="")
+
+def test_registry_fails_closed_and_preserves_veto(tmp_path):
+    from gway_agent_ops.repository_registry import parse_snapshot
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        with pytest.raises(ValueError):
+            ledger.discover(ISSUE)
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.decide(ISSUE, "veto", actor="operator", reason="hold")
+        with pytest.raises(ValueError):
+            ledger.refresh_repositories('{"schema":1}')
+        assert ledger.get(ISSUE)["state"] == "vetoed"
+        assert ledger.registry_status()["healthy"] is False
+        with pytest.raises(ValueError):
+            ledger.discover("arthexis/gway-remote#2")
+        ready(ledger)
+        assert ledger.get(ISSUE)["state"] == "vetoed"
+
+
+def test_removed_repo_blocks_approval(tmp_path):
+    with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
+        ready(ledger)
+        ledger.discover(ISSUE)
+        ledger.refresh_repositories(json.dumps({"schema": 1, "revision": "b" * 40,
+            "targets": [{"name": "remote", "repository": "arthexis/gway-remote"}]}))
+        with pytest.raises(ValueError):
+            ledger.decide(ISSUE, "approve", actor="operator")
+        assert ledger.get(ISSUE)["state"] == "requested"
+
+
+@pytest.mark.parametrize("targets", [[], [
+    {"name": "a", "repository": "arthexis/a"},
+    {"name": "b", "repository": "arthexis/a"}], [
+    {"name": "a", "repository": "../unsafe"}]])
+def test_invalid_registry_entries(targets):
+    from gway_agent_ops.repository_registry import validate_snapshot
+    with pytest.raises(ValueError):
+        validate_snapshot({"schema": 1, "revision": "a" * 40, "targets": targets})
