@@ -26,6 +26,25 @@ def _history(state_dir: Path) -> dict:
     return latest
 
 
+def _parse_pages(output: str) -> list[list[dict]]:
+    """Decode adjacent JSON arrays emitted by gh api --paginate (including gh 2.23)."""
+    decoder = json.JSONDecoder()
+    pages = []
+    offset = 0
+    while offset < len(output):
+        while offset < len(output) and output[offset].isspace():
+            offset += 1
+        if offset == len(output):
+            break
+        page, offset = decoder.raw_decode(output, offset)
+        if not isinstance(page, list):
+            raise ValueError("unexpected GitHub listing page")
+        pages.append(page)
+    if not pages:
+        raise ValueError("empty GitHub listing")
+    return pages
+
+
 def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None = None,
                 runner=subprocess.run, creator: str = "arthexis") -> list[dict]:
     """List open, trusted issues. Fail closed rather than returning partial results."""
@@ -37,7 +56,7 @@ def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None
         from .github_issues import REPOSITORY
         if not REPOSITORY.fullmatch(repository):
             raise IssueRejected("invalid_repository_allowlist")
-        cmd = ["gh", "api", "--paginate", "--slurp",
+        cmd = ["gh", "api", "--paginate",
                f"repos/{repository}/issues?state=open&per_page=100"]
         try:
             result = runner(cmd, capture_output=True, text=True, timeout=30,
@@ -46,7 +65,7 @@ def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None
                                  if k not in ("GH_TOKEN", "GITHUB_TOKEN")})
             if result.returncode:
                 raise IssueRejected("github_unavailable")
-            pages = json.loads(result.stdout)
+            pages = _parse_pages(result.stdout)
             if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
                 raise ValueError("unexpected GitHub listing")
             for page in pages:
