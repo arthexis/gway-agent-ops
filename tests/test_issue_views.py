@@ -47,7 +47,7 @@ class IssueProjectionTests(unittest.TestCase):
         def runner(argv, **kwargs):
             self.assertNotIn("--slurp", argv)
             return subprocess.CompletedProcess(argv, 0,
-                                               json.dumps(first) + "\\n" + json.dumps(second), "")
+                                               json.dumps(first) + "\n" + json.dumps(second), "")
         rows = list_issues(allowed_repositories=(self.repo,), state_dir=self.state, runner=runner)
         self.assertEqual([row["number"] for row in rows], [21, 22])
 
