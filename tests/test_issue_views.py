@@ -20,7 +20,7 @@ class IssueProjectionTests(unittest.TestCase):
 
     def runner(self, comments=4, *, fail=False):
         def call(argv, **kwargs):
-            self.assertEqual(argv[:4], ["gh", "api", "--paginate", "--slurp"])
+            self.assertEqual(argv[:4], ["gh", "api", "--paginate", "repos/arthexis/example/issues?state=open&per_page=100"])
             items = [
                 {"number": 12, "state": "open", "user": {"login": "arthexis"},
                  "title": "Trusted", "comments": comments},
@@ -32,12 +32,32 @@ class IssueProjectionTests(unittest.TestCase):
                  "title": "PR", "comments": 0, "pull_request": {}},
             ]
             return subprocess.CompletedProcess(argv, 1 if fail else 0,
-                                               json.dumps([items]), "")
+                                               json.dumps(items), "")
         return call
 
     def project(self, comments=4):
         return list_issues(allowed_repositories=(self.repo,), state_dir=self.state,
                            runner=self.runner(comments))
+
+    def test_multiple_concatenated_array_pages(self):
+        first = [{"number": 21, "state": "open", "user": {"login": "arthexis"},
+                  "title": "First", "comments": 0}]
+        second = [{"number": 22, "state": "open", "user": {"login": "arthexis"},
+                   "title": "Second", "comments": 1}]
+        def runner(argv, **kwargs):
+            self.assertNotIn("--slurp", argv)
+            return subprocess.CompletedProcess(argv, 0,
+                                               json.dumps(first) + "\\n" + json.dumps(second), "")
+        rows = list_issues(allowed_repositories=(self.repo,), state_dir=self.state, runner=runner)
+        self.assertEqual([row["number"] for row in rows], [21, 22])
+
+    def test_invalid_and_incomplete_json_fail_closed(self):
+        for output in ("", "null", "[] garbage", '[{"number": 2}', "[]\\n{}"):
+            with self.subTest(output=output):
+                def runner(argv, **kwargs):
+                    return subprocess.CompletedProcess(argv, 0, output, "")
+                with self.assertRaises(IssueRejected):
+                    list_issues(allowed_repositories=(self.repo,), state_dir=self.state, runner=runner)
 
     def test_open_sent_attended_and_total_comments(self):
         self.assertEqual(self.project()[0]["state"], "open")
