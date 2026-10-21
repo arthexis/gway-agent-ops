@@ -59,6 +59,17 @@ class NonblockingTests(unittest.TestCase):
                 self.send()
         self.assertFalse(list((self.root / "requests").glob("*.json")))
 
+    def test_label_removed_before_submission_creates_no_request(self):
+        from gway_agent_ops.github_issues import IssueRejected
+        for labels in ([], ["GWAY-001"], ["gway-001-extra"]):
+            with self.subTest(labels=labels), patch(
+                    "gway_agent_ops.nonblocking.resolve",
+                    return_value={"labels": labels}):
+                with self.assertRaisesRegex(IssueRejected, "target_label_missing"):
+                    self.send()
+                self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "unknown")
+                self.assertFalse(list((self.root / "requests").glob("*.json")))
+
     def test_terminal_request_allows_next_issue(self):
         self.send()
         normalized = "2026-10-13T15:00:00.000000Z"
