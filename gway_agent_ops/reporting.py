@@ -71,12 +71,18 @@ def deliver(record: dict, *, runner=subprocess.run) -> None:
     """Idempotent against successfully posted but locally unacknowledged reports."""
     repository, number = record["issue"].rsplit("#", 1)
     endpoint = f"repos/{repository}/issues/{number}/comments"
-    pages = _api([endpoint, "--paginate", "--slurp"], runner=runner)
-    if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
-        raise RuntimeError("github_reporting_invalid_response")
-    if any(record["marker"] in str(row.get("body", ""))
-           for page in pages for row in page if isinstance(row, dict)):
-        return
+    # gh 2.23 does not support --slurp. Query bounded pages explicitly,
+    # failing closed rather than posting when any page cannot be inspected.
+    for page in range(1, 1001):
+        rows = _api([f"{endpoint}?per_page=100&page={page}"], runner=runner)
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise RuntimeError("github_reporting_invalid_response")
+        if any(record["marker"] in str(row.get("body", "")) for row in rows):
+            return
+        if len(rows) < 100:
+            break
+    else:
+        raise RuntimeError("github_reporting_pagination_exceeded")
     message = (f"Agent invocation {record['at']}: {record['status']}."
                + (f" Codex exit code: {record['exit_code']}." if record["exit_code"] is not None else "")
                + f"\n<!-- {record['marker']} -->")

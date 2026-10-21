@@ -41,6 +41,8 @@ def build_parser():
     submission.add_argument("ref")
     submission.add_argument("--at", required=True)
     submission.add_argument("--json", action="store_true")
+    report = sub.add_parser("report", help="Deliver retained GitHub reports without invoking Codex")
+    report.add_argument("--json", action="store_true")
     release_parser = sub.add_parser("release", help="Retire an unresolved submission after stopping its unit")
     release_parser.add_argument("ref")
     release_parser.add_argument("--at", required=True)
@@ -198,6 +200,23 @@ def main(argv=None):
             print(json_line(result))
         else:
             print(result["data"]["state"] if code == 0 else "Submission unavailable")
+        return code
+    if args.command == "report":
+        from .reporting import flush
+        try:
+            data = flush()
+            status, code = ("ok", 0) if data["pending"] == 0 else ("error", 1)
+            result = envelope("report", status, data=data,
+                              error=None if code == 0 else {
+                                  "code": "report_delivery_pending",
+                                  "message": "Some durable reports remain queued"})
+        except (OSError, ValueError, RuntimeError):
+            code = 1
+            result = envelope("report", "error", error={
+                "code": "report_delivery_unavailable",
+                "message": "Unable to process durable reports"})
+        print(json_line(result) if args.json else
+              (str(result["data"]) if code == 0 else "Report delivery incomplete"))
         return code
     if args.command == "status":
         from .admission_status import status as admission_status

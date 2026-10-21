@@ -22,8 +22,8 @@ class ReportingTests(unittest.TestCase):
         calls = []
         def runner(argv, **kwargs):
             calls.append(argv)
-            if "--slurp" in argv:
-                return subprocess.CompletedProcess(argv, 0, "[[]]", "")
+            if "per_page=100" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, "[]", "")
             return subprocess.CompletedProcess(argv, 0, "{}", "")
         self.assertEqual(flush(state_dir=self.root, runner=runner), {"sent": 1, "pending": 0})
         self.assertTrue(any("codex_failed" in str(argv) for argv in calls))
@@ -40,10 +40,21 @@ class ReportingTests(unittest.TestCase):
     def test_existing_remote_marker_prevents_reposting(self):
         record = enqueue(self.issue, self.at, state_dir=self.root)
         def runner(argv, **kwargs):
-            if "--slurp" in argv:
-                return subprocess.CompletedProcess(argv, 0, json.dumps([[{"body": record["marker"]}]]), "")
+            if "per_page=100" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": record["marker"]}]), "")
             self.fail("a duplicate GitHub comment was posted")
         self.assertEqual(flush(state_dir=self.root, runner=runner)["sent"], 1)
+
+    def test_marker_on_later_page_prevents_duplicate(self):
+        record = enqueue(self.issue, self.at, state_dir=self.root)
+        calls = []
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            if argv[2].endswith("&page=1"):
+                return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": "other"}] * 100), "")
+            return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": record["marker"]}]), "")
+        self.assertEqual(flush(state_dir=self.root, runner=runner), {"sent": 1, "pending": 0})
+        self.assertEqual(len(calls), 2)
 
     def test_recover_only_old_dispatches_and_not_delivered(self):
         self.root.mkdir(mode=0o700)
