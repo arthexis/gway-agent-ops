@@ -18,7 +18,7 @@ class ExecutionTests(unittest.TestCase):
         (self.checkout / ".git").mkdir()
         self.state = self.root / "state"
         self.issue = {"repository": "arthexis/example", "number": 19,
-                      "title": "Fix an issue", "body": "Body", "comments": 6,
+                      "title": "Fix an issue", "body": "Body", "comments": 6, "labels": ["gway-001"],
                       "url": "https://github.com/arthexis/example/issues/19"}
 
     def call(self, **kwargs):
