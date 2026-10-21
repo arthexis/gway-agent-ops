@@ -40,7 +40,7 @@ class ReportingTests(unittest.TestCase):
     def test_existing_remote_marker_prevents_reposting(self):
         record = enqueue(self.issue, self.at, state_dir=self.root)
         def runner(argv, **kwargs):
-            if "--slurp" in argv:
+            if "per_page=100" in " ".join(argv):
                 return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": record["marker"]}]), "")
             self.fail("a duplicate GitHub comment was posted")
         self.assertEqual(flush(state_dir=self.root, runner=runner)["sent"], 1)
@@ -50,7 +50,7 @@ class ReportingTests(unittest.TestCase):
         calls = []
         def runner(argv, **kwargs):
             calls.append(argv)
-            if "page=1" in argv[2]:
+            if argv[2].endswith("&page=1"):
                 return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": "other"}] * 100), "")
             return subprocess.CompletedProcess(argv, 0, json.dumps([{"body": record["marker"]}]), "")
         self.assertEqual(flush(state_dir=self.root, runner=runner), {"sent": 1, "pending": 0})
