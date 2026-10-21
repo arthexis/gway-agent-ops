@@ -3,6 +3,21 @@
 Source archive for local agent/approval helpers that should not remain as
 ad-hoc state under the GWAY field workspace.
 
+## GWAY-001 agent issue routing
+
+**Before submitting a field-agent task**, add the exact GitHub issue label
+`gway-001`. This marker is required for tasks targeting the agent on GWAY-001,
+including submissions via GWAY Remote **Assigned Issues → Send to Agent**.
+The label alone never grants authorization: trusted author, open issue,
+allowlisted repository, explicit operator dispatch, and execution admission
+remain mandatory.
+
+Check the label when creating an agent issue. Unlabeled issues must not be
+assumed eligible even when their repository is allowlisted. Server-side
+validation and actionable Remote feedback are tracked by
+[issue #34](https://github.com/arthexis/gway-agent-ops/issues/34); until
+those checks are verified, manually confirm the label before sending.
+
 ## Contents
 
 - `scripts/gway/agent_alert.py`: file/Twilio-backed urgent attention bridge.
