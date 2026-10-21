@@ -39,7 +39,8 @@ class ControllerHardeningTests(unittest.TestCase):
     def test_release_cannot_run_during_execution(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
-             patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
+             patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
         lock = self.root / "execution.lock"
@@ -55,16 +56,17 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_ambiguous_launch_persists_and_same_key_does_not_retry(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        runner = Mock()
+        runner = Mock(side_effect=OSError("systemd launch uncertain"))
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
-             patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
+             patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             first = submit(ref, at, allowed_repositories=("owner/repo",),
                            state_dir=self.root, runner=runner)
             again = submit(ref, at, allowed_repositories=("owner/repo",),
                            state_dir=self.root, runner=runner)
         self.assertEqual(first["state"], "launch_unconfirmed")
         self.assertEqual(again["state"], "already_requested")
-        runner.assert_not_called()
+        self.assertEqual(runner.call_count, 1)
         self.assertFalse(status(state_dir=self.root)["available"])
 
     def test_status_during_submission_gate_is_unavailable(self):
@@ -119,7 +121,8 @@ class ControllerHardeningTests(unittest.TestCase):
     def test_release_is_idempotent_and_allows_new_issue_only(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
-             patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
+             patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
             runner = Mock(side_effect=[
@@ -150,7 +153,8 @@ class ControllerHardeningTests(unittest.TestCase):
     def test_failed_release_keeps_reservation_after_restart(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
-             patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
+             patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
         runner = Mock(return_value=Mock(returncode=1, stdout=""))

@@ -53,3 +53,23 @@ class RuntimeTests(unittest.TestCase):
         auth.write_text('{"secret":"unread"}')
         auth.chmod(0o600)
         self.assertTrue(runtime_context(root=self.root)["authentication_available"])
+
+    def test_explicit_seed_reference_reuses_private_home_without_copy(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            seed = Path(tmp) / "seed"
+            seed.mkdir(mode=0o700)
+            (seed / "config.toml").write_text('model = "seed"\\n')
+            (seed / "config.toml").chmod(0o600)
+            (seed / "auth.json").write_text(json.dumps({"auth": "seed"}))
+            (seed / "auth.json").chmod(0o600)
+            context = runtime_context(root=self.root, env={
+                "GWAY_AGENT_SEED_CODEX_HOME": str(seed)})
+            self.assertEqual(context["environment"]["CODEX_HOME"], str(seed))
+            self.assertEqual(context["isolation"], "same-user-seed-reference")
+            self.assertTrue(context["authentication_available"])
+            self.assertFalse((self.codex / "auth.json").exists())
+            seed.chmod(0o755)
+            with self.assertRaises(PermissionError):
+                runtime_context(root=self.root, env={
+                    "GWAY_AGENT_SEED_CODEX_HOME": str(seed)})

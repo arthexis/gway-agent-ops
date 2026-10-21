@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import shutil
+import stat
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
@@ -20,6 +21,34 @@ from .observation import observe
 
 
 _TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
+
+def _launch_prerequisites() -> str:
+    """Validate stable launch inputs *before* a durable request is recorded.
+
+    This cannot prove the transient unit will start: failures after dispatch
+    remain launch_unconfirmed to preserve at-most-once submission.
+    """
+    executable = shutil.which("agent")
+    if not executable or not Path(executable).is_file() or not os.access(executable, os.X_OK):
+        raise ValueError("agent_cli_not_found")
+    workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
+    if not workspace or not Path(workspace).is_absolute():
+        raise ValueError("agent_workspace_not_configured")
+    if Path(workspace).is_symlink():
+        raise ValueError("agent_workspace_unsafe")
+    try:
+        info = Path(workspace).stat()
+    except OSError as exc:
+        raise ValueError("agent_workspace_unavailable") from exc
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077):
+        raise ValueError("agent_workspace_unsafe")
+    if not shutil.which("systemd-run"):
+        raise ValueError("agent_systemd_run_unavailable")
+    if not os.environ.get("XDG_RUNTIME_DIR"):
+        raise ValueError("agent_user_bus_unavailable")
+    return executable
+
 
 
 def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str | None:
@@ -93,6 +122,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
         # Apply the existing GitHub trust gate before creating any work.
         resolve(ref, allowed_repositories=allowed_repositories)
+        executable = _launch_prerequisites()
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump({"issue": ref, "at": at, "state": "requested"}, handle)
@@ -110,12 +140,10 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             "--unit=gway-agent-" + digest[:32],
             "--setenv=GWAY_AGENT_ALLOWED_REPOS=" + ",".join(allowed_repositories),
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
+            "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
             "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
-        executable = shutil.which("agent")
-        if not executable or not Path(executable).is_file() or not os.environ.get("GWAY_AGENT_WORKSPACE_ROOT"):
-            return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
         command.extend([executable, "issue", ref, "--at", at, "--json"])
         try:
             result = runner(command, capture_output=True, text=True,

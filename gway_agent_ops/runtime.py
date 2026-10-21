@@ -30,7 +30,14 @@ def runtime_context(*, root: Path | None = None, env: dict | None = None,
     """
     root = Path(root or DEFAULT_ROOT)
     _check_directory(root, create=create)
-    codex = root / "codex-home"
+    seed = (os.environ if env is None else env).get("GWAY_AGENT_SEED_CODEX_HOME", "")
+    if seed:
+        # Explicit opt-in: reference same-user Codex home; never copy credentials.
+        codex = Path(seed)
+        if not codex.is_absolute():
+            raise ValueError("seed Codex home must be absolute")
+    else:
+        codex = root / "codex-home"
     _check_directory(codex)
     config = codex / "config.toml"
     if config.is_symlink() or not config.is_file():
@@ -51,4 +58,4 @@ def runtime_context(*, root: Path | None = None, env: dict | None = None,
     safe["HOME"] = str(Path.home())
     return {"environment": safe, "codex_home": str(codex),
             "authentication_available": auth.is_file(),
-            "isolation": "environment-only"}
+            "isolation": "same-user-seed-reference" if seed else "environment-only"}
