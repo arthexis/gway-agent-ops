@@ -201,7 +201,20 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             stopped = runner(["systemctl", "--user", "stop", unit],
                              capture_output=True, text=True, check=False, timeout=10)
             if stopped.returncode != 0:
-                raise ValueError("unit_stop_unconfirmed")
+                # --collect may have garbage-collected the transient unit.
+                # A failed stop is safe only when systemd explicitly says the
+                # computed unit is absent; ambiguous failures remain blocked.
+                metadata = runner(
+                    ["systemctl", "--user", "show", unit,
+                     "--property=LoadState", "--property=ActiveState"],
+                    capture_output=True, text=True, check=False, timeout=10)
+                properties = dict(
+                    line.split("=", 1) for line in metadata.stdout.splitlines()
+                    if "=" in line)
+                if (metadata.returncode != 0 or
+                        properties.get("LoadState") != "not-found" or
+                        properties.get("ActiveState") != "inactive"):
+                    raise ValueError("unit_stop_unconfirmed")
             checked = runner(["systemctl", "--user", "is-active", unit],
                              capture_output=True, text=True, check=False, timeout=10)
             if checked.returncode == 0 or checked.stdout.strip() not in ("inactive", "failed", "unknown"):
