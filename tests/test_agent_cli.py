@@ -1,6 +1,7 @@
 import contextlib
 import io
 import unittest
+from unittest.mock import patch
 from gway_agent_ops.cli import main, parse_issue_ref, EVENTS, NOT_IMPLEMENTED
 
 
@@ -25,6 +26,13 @@ class AgentCliTests(unittest.TestCase):
                     self.assertEqual(err.getvalue(), "")
                 else:
                     self.assertIn("not implemented", err.getvalue())
+
+    def test_report_flush_never_executes_agent(self):
+        with patch("gway_agent_ops.reporting.flush", return_value={"sent": 1, "pending": 0}) as flush:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(main(["report", "--json"]), 0)
+            self.assertIn('"sent":1', out.getvalue())
+            flush.assert_called_once_with()
 
     def test_bad_ref_exit_code(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
