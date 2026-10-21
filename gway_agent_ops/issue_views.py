@@ -89,12 +89,19 @@ def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None
                         # entries lack it, so never guess that a reply arrived.
                         state = ("attended" if type(baseline) is int and count > baseline
                                  else "sent")
+                    labels = item.get("labels")
+                    if not isinstance(labels, list) or any(
+                            not isinstance(label, dict) or
+                            not isinstance(label.get("name"), str) for label in labels):
+                        raise IssueRejected("invalid_issue_labels")
+                    names = [label["name"] for label in labels]
+                    eligible = "gway-001" in names
                     rows.append(issue_row(repository=repository, number=number,
                                           title=item["title"], state=state,
                                           comments=count,
                                           sent_at=accepted["at"] if accepted else None,
-                                          labels=[label["name"] for label in item.get("labels", [])
-                                                  if isinstance(label, dict) and isinstance(label.get("name"), str)]))
+                                          labels=names, eligible=eligible,
+                                          ineligible_reason=None if eligible else "target_label_missing"))
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
             if isinstance(exc, IssueRejected):
                 raise

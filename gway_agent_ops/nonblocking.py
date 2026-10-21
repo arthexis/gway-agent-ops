@@ -121,7 +121,8 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         if active is not None:
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
         # Apply the existing GitHub trust gate before creating any work.
-        resolve(ref, allowed_repositories=allowed_repositories)
+        from .github_issues import require_target_label
+        require_target_label(resolve(ref, allowed_repositories=allowed_repositories))
         executable = _launch_prerequisites()
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

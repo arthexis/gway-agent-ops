@@ -21,7 +21,7 @@ class AdmissionStatusTests(unittest.TestCase):
     def test_reserved_and_released(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
                  patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
                 submit("owner/repo#1", "2026-10-13T15:00:00Z",
@@ -51,7 +51,7 @@ class AdmissionStatusTests(unittest.TestCase):
             snapshot = status(state_dir=root)
             self.assertFalse(snapshot["available"])
             self.assertEqual(snapshot["active_issue"], ref)
-            with patch("gway_agent_ops.nonblocking.resolve", return_value={}):
+            with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}):
                 response = submit("owner/repo#2", "2026-10-13T15:01:00Z",
                                   allowed_repositories=("owner/repo",), state_dir=root)
             self.assertEqual(response["state"], "busy")

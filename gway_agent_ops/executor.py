@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from .dispatch import Busy, Duplicate, admission, timestamp
-from .github_issues import IssueRejected, resolve
+from .github_issues import IssueRejected, resolve, require_target_label
 from .runtime import runtime_context
 from .reporting import enqueue, recover, flush
 
@@ -52,6 +52,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
     if not allowed_repositories:
         raise ExecutionError("repository_allowlist_missing")
     issue = resolver(ref, repo=repo, allowed_repositories=allowed_repositories)
+    require_target_label(issue)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)
     checkout = root.joinpath(*issue["repository"].split("/"))

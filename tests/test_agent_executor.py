@@ -18,7 +18,7 @@ class ExecutionTests(unittest.TestCase):
         (self.checkout / ".git").mkdir()
         self.state = self.root / "state"
         self.issue = {"repository": "arthexis/example", "number": 19,
-                      "title": "Fix an issue", "body": "Body", "comments": 6,
+                      "title": "Fix an issue", "body": "Body", "comments": 6, "labels": ["gway-001"],
                       "url": "https://github.com/arthexis/example/issues/19"}
 
     def call(self, **kwargs):
@@ -63,6 +63,13 @@ class ExecutionTests(unittest.TestCase):
     def test_timeout_validation(self):
         with self.assertRaises(ValueError):
             self.call(timeout_seconds=0)
+        self.assertFalse(self.state.exists())
+
+    def test_label_removed_before_execution_never_starts_codex(self):
+        from gway_agent_ops.github_issues import IssueRejected
+        self.issue["labels"] = []
+        with self.assertRaisesRegex(IssueRejected, "target_label_missing"):
+            self.call()
         self.assertFalse(self.state.exists())
 
     def test_issue_resolution_failure_prevents_dispatch(self):

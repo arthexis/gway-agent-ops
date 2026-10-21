@@ -34,6 +34,13 @@ class AgentCliTests(unittest.TestCase):
             self.assertIn('"sent":1', out.getvalue())
             flush.assert_called_once_with()
 
+    def test_submit_routing_denial(self):
+        from gway_agent_ops.github_issues import IssueRejected
+        with patch("gway_agent_ops.nonblocking.submit", side_effect=IssueRejected("target_label_missing")):
+            with contextlib.redirect_stdout(io.StringIO()) as response:
+                rc = main(["submit", "owner/repo#2", "--at", "2026-10-21T20:17:23Z", "--json"])
+        self.assertEqual(rc, 1)
+        self.assertIn("target_label_missing", response.getvalue())
     def test_bad_ref_exit_code(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
             main(["issue", "invalid"])

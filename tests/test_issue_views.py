@@ -42,9 +42,9 @@ class IssueProjectionTests(unittest.TestCase):
 
     def test_multiple_concatenated_array_pages(self):
         first = [{"number": 21, "state": "open", "user": {"login": "arthexis"},
-                  "title": "First", "comments": 0}]
+                  "title": "First", "comments": 0, "labels": []}]
         second = [{"number": 22, "state": "open", "user": {"login": "arthexis"},
-                   "title": "Second", "comments": 1}]
+                   "title": "Second", "comments": 1, "labels": []}]
         def runner(argv, **kwargs):
             self.assertNotIn("--slurp", argv)
             return subprocess.CompletedProcess(argv, 0,
@@ -63,6 +63,7 @@ class IssueProjectionTests(unittest.TestCase):
     def test_open_sent_attended_and_total_comments(self):
         self.assertEqual(self.project()[0]["state"], "open")
         self.assertEqual(self.project()[0]["labels"], ["bug", "gway-001"])
+        self.assertTrue(self.project()[0]["eligible"])
         with admission(self.repo + "#12", "2026-10-13T01:00:00Z",
                        state_dir=self.state, comment_baseline=4):
             pass
@@ -79,6 +80,15 @@ class IssueProjectionTests(unittest.TestCase):
             pass
         self.assertEqual(self.project(5)[0]["state"], "sent")
         self.assertEqual(self.project(6)[0]["state"], "attended")
+
+    def test_unlabeled_issue_exposes_ineligibility(self):
+        def runner(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, json.dumps([
+                {"number": 16, "state": "open", "user": {"login": "arthexis"},
+                 "title": "Unlabeled", "comments": 0, "labels": []}]), "")
+        rows = list_issues(allowed_repositories=(self.repo,), state_dir=self.state, runner=runner)
+        self.assertFalse(rows[0]["eligible"])
+        self.assertEqual(rows[0]["ineligible_reason"], "target_label_missing")
 
     def test_trust_and_closed_pr_filters(self):
         self.assertEqual([r["number"] for r in self.project()], [12])
