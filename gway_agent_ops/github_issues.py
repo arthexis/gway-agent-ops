@@ -17,6 +17,17 @@ class IssueRejected(ValueError):
         self.code = code
 
 
+TARGET_LABEL = "gway-001"
+
+
+def require_target_label(issue: dict) -> None:
+    labels = issue.get("labels")
+    if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
+        raise IssueRejected("invalid_issue_labels")
+    if TARGET_LABEL not in labels:
+        raise IssueRejected("target_label_missing")
+
+
 def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...],
             creator: str = "arthexis", runner=subprocess.run) -> dict:
     """Fetch one issue by explicit repository allowlist, never execute issue text.
@@ -53,7 +64,7 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
         if (not isinstance(payload["title"], str) or not isinstance(payload.get("body"), (str, type(None)))
                 or type(payload.get("comments")) is not int or payload["comments"] < 0):
             raise IssueRejected("invalid_issue")
-        labels = payload.get("labels", [])
+        labels = payload.get("labels")
         if not isinstance(labels, list) or any(not isinstance(x, dict) or not isinstance(x.get("name"), str) for x in labels):
             raise IssueRejected("invalid_issue_labels")
         return {"labels": [x["name"] for x in labels], "repository": repository, "number": number,
