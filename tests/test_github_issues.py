@@ -3,7 +3,7 @@ import json
 import subprocess
 import unittest
 
-from gway_agent_ops.github_issues import IssueRejected, resolve
+from gway_agent_ops.github_issues import IssueRejected, resolve, require_target_label
 
 
 REPO = "arthexis/gway-lcd-sound"
@@ -13,6 +13,7 @@ def payload(**overrides):
     data = {"number": 19, "state": "open", "user": {"login": "arthexis"},
             "title": "Generalize sound hook", "body": "Build it",
             "comments": 4, "repository_url": f"https://api.github.com/repos/{REPO}"}
+    data["labels"] = [{"name": "gway-001"}]
     data.update(overrides)
     return data
 
@@ -33,6 +34,21 @@ class GithubIssueTests(unittest.TestCase):
         self.assertEqual(result["comments"], 4)
         self.assertEqual(result["url"], f"https://github.com/{REPO}/issues/19")
         self.assertEqual(result["body"], "Build it")
+
+    def test_label_gate_exact_and_fail_closed(self):
+        for labels in ([], ["GWAY-001"], ["gway-001-extra"]):
+            with self.subTest(labels=labels), self.assertRaisesRegex(IssueRejected, "target_label_missing"):
+                require_target_label({"labels": labels})
+        for labels in (None, ["gway-001", None]):
+            with self.subTest(labels=labels), self.assertRaisesRegex(IssueRejected, "invalid_issue_labels"):
+                require_target_label({"labels": labels})
+        require_target_label({"labels": ["gway-001"]})
+
+    def test_missing_label_metadata_is_invalid(self):
+        body = payload()
+        body.pop("labels")
+        with self.assertRaisesRegex(IssueRejected, "invalid_issue_labels"):
+            resolve(f"{REPO}#19", allowed_repositories=(REPO,), runner=runner(body))
 
     def test_allowlist_rejects_without_network(self):
         def should_not_call(*args, **kwargs):
