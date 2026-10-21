@@ -20,7 +20,7 @@ class NonblockingTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.gate = patch("gway_agent_ops.nonblocking.resolve", return_value={})
+        self.gate = patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]})
         self.gate.start()
         self.addCleanup(self.gate.stop)
 
