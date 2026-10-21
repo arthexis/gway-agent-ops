@@ -158,8 +158,8 @@ class ControllerHardeningTests(unittest.TestCase):
                    state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
         runner = Mock(side_effect=[
             Mock(returncode=5, stdout=""),
-            Mock(returncode=0, stdout="LoadState=not-found\\nActiveState=inactive\\n"),
-            Mock(returncode=3, stdout="unknown\\n")])
+            Mock(returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n"),
+            Mock(returncode=3, stdout="unknown\n")])
         result = release(ref, at, state_dir=self.root, runner=runner)
         self.assertEqual(result["state"], "released")
         self.assertEqual(runner.call_count, 3)
@@ -171,12 +171,12 @@ class ControllerHardeningTests(unittest.TestCase):
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
-        for properties in ("LoadState=loaded\\nActiveState=active\\n",
-                           "LoadState=not-found\\nActiveState=activating\\n",
-                           "LoadState=not-found\\n",
-                           "LoadState=not-found\\nActiveState=inactive\\n"):
+        for properties in ("LoadState=loaded\nActiveState=active\n",
+                           "LoadState=not-found\nActiveState=activating\n",
+                           "LoadState=not-found\n",
+                           "LoadState=not-found\nActiveState=inactive\n"):
             with self.subTest(properties=properties):
-                code = 1 if properties.endswith("inactive\\n") else 0
+                code = 1 if properties.endswith("inactive\n") else 0
                 runner = Mock(side_effect=[
                     Mock(returncode=5, stdout=""),
                     Mock(returncode=code, stdout=properties)])
