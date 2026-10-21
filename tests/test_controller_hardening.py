@@ -30,7 +30,7 @@ class ControllerHardeningTests(unittest.TestCase):
             with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                            state_dir=self.root):
                 pass
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}):
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}):
             response = submit("owner/repo#2", "2026-10-13T15:01:00Z",
                               allowed_repositories=("owner/repo",),
                               state_dir=self.root)
@@ -38,7 +38,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_release_cannot_run_during_execution(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
@@ -57,7 +57,7 @@ class ControllerHardeningTests(unittest.TestCase):
     def test_ambiguous_launch_persists_and_same_key_does_not_retry(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         runner = Mock(side_effect=OSError("systemd launch uncertain"))
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             first = submit(ref, at, allowed_repositories=("owner/repo",),
@@ -120,7 +120,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_release_is_idempotent_and_allows_new_issue_only(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
@@ -152,7 +152,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_collected_transient_unit_may_be_released(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
@@ -167,7 +167,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_collected_unit_rejects_uncertain_or_active_systemd_state(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
@@ -186,7 +186,7 @@ class ControllerHardeningTests(unittest.TestCase):
 
     def test_failed_release_keeps_reservation_after_restart(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
-        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
              patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
