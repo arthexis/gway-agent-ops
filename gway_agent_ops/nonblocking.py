@@ -140,6 +140,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             "--unit=gway-agent-" + digest[:32],
             "--setenv=GWAY_AGENT_ALLOWED_REPOS=" + ",".join(allowed_repositories),
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
+            "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
             "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
