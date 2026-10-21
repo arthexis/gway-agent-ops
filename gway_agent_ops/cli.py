@@ -187,11 +187,19 @@ def main(argv=None):
         return code
     if args.command == "submit":
         from .nonblocking import submit
+        from .github_issues import IssueRejected
         try:
             allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
             data = submit(args.ref, args.at, allowed_repositories=allowed)
             result = envelope("submit", "ok", data=data)
             code = 0
+        except IssueRejected as exc:
+            reason = exc.code if exc.code in ("target_label_missing", "invalid_issue_labels") else "submission_unavailable"
+            message = ("Add the exact gway-001 label before sending"
+                       if reason == "target_label_missing" else "Issue label metadata unavailable"
+                       if reason == "invalid_issue_labels" else "Unable to request invocation")
+            result = envelope("submit", "error", error={"code": reason, "message": message})
+            code = 1
         except (ValueError, OSError, KeyError, TypeError):
             result = envelope("submit", "error", error={
                 "code": "submission_unavailable", "message": "Unable to request invocation"})
