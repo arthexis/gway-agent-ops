@@ -287,7 +287,8 @@ def main(argv=None):
         from .github_issues import IssueRejected
         try:
             allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
-            data = {"issues": list_issues(allowed_repositories=allowed)}
+            data = {"issues": list_issues(allowed_repositories=allowed),
+                    "agent": __import__("socket").gethostname().lower()}
             status, error, code = "ok", None, 0
         except (IssueRejected, OSError, ValueError) as exc:
             data, status, code = None, "error", 1

@@ -23,7 +23,8 @@ class IssueProjectionTests(unittest.TestCase):
             self.assertEqual(argv[:4], ["gh", "api", "--paginate", "repos/arthexis/example/issues?state=open&per_page=100"])
             items = [
                 {"number": 12, "state": "open", "user": {"login": "arthexis"},
-                 "title": "Trusted", "comments": comments},
+                 "title": "Trusted", "comments": comments,
+                 "labels": [{"name": "gway-001"}, {"name": "bug"}]},
                 {"number": 13, "state": "open", "user": {"login": "other"},
                  "title": "Other", "comments": 0},
                 {"number": 14, "state": "closed", "user": {"login": "arthexis"},
@@ -61,6 +62,7 @@ class IssueProjectionTests(unittest.TestCase):
 
     def test_open_sent_attended_and_total_comments(self):
         self.assertEqual(self.project()[0]["state"], "open")
+        self.assertEqual(self.project()[0]["labels"], ["bug", "gway-001"])
         with admission(self.repo + "#12", "2026-10-13T01:00:00Z",
                        state_dir=self.state, comment_baseline=4):
             pass

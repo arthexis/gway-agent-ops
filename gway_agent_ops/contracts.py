@@ -55,7 +55,7 @@ def status_data(*, active: bool = False, five_hour: dict | None = None,
 
 
 def issue_row(*, repository: str, number: int, title: str, state: str,
-              comments: int, sent_at: str | None = None) -> dict:
+              comments: int, sent_at: str | None = None, labels: list[str] | None = None) -> dict:
     if (not repository or "/" not in repository or
             type(number) is not int or number < 1 or
             state not in STATES or type(comments) is not int or comments < 0):
@@ -68,7 +68,8 @@ def issue_row(*, repository: str, number: int, title: str, state: str,
             raise ValueError("dispatch time must include timezone")
     return {"repository": repository, "number": number, "title": title,
             "url": f"https://github.com/{repository}/issues/{number}",
-            "state": state, "comments": comments, "sent_at": sent_at}
+            "state": state, "comments": comments, "sent_at": sent_at,
+            "labels": sorted(set(labels or []))}
 
 
 def json_line(payload: dict) -> str:

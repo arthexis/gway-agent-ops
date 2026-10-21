@@ -92,7 +92,9 @@ def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None
                     rows.append(issue_row(repository=repository, number=number,
                                           title=item["title"], state=state,
                                           comments=count,
-                                          sent_at=accepted["at"] if accepted else None))
+                                          sent_at=accepted["at"] if accepted else None,
+                                          labels=[label["name"] for label in item.get("labels", [])
+                                                  if isinstance(label, dict) and isinstance(label.get("name"), str)]))
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
             if isinstance(exc, IssueRejected):
                 raise
