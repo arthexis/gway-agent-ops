@@ -3,6 +3,14 @@
 Source archive for local agent/approval helpers that should not remain as
 ad-hoc state under the GWAY field workspace.
 
+## GWAY-001 agent issue routing
+
+Before submitting a field-agent task, add the exact GitHub label `gway-001`.
+This routing marker is required for GWAY-001, but does **not** authorize execution.
+Trusted author, open issue, explicitly allowed repository, operator action and
+single-slot admission remain mandatory. Agent Ops checks labels with fresh GitHub
+metadata at submission and again at execution, never relying on Android's cache.
+
 ## Contents
 
 - `scripts/gway/agent_alert.py`: file/Twilio-backed urgent attention bridge.
