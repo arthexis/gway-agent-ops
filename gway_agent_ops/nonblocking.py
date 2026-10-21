@@ -34,6 +34,8 @@ def _launch_prerequisites() -> str:
     workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
     if not workspace or not Path(workspace).is_absolute():
         raise ValueError("agent_workspace_not_configured")
+    if Path(workspace).is_symlink():
+        raise ValueError("agent_workspace_unsafe")
     try:
         info = Path(workspace).stat()
     except OSError as exc:
