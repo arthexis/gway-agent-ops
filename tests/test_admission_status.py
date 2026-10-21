@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gway_agent_ops.admission_status import status
 from gway_agent_ops.nonblocking import submit, release
@@ -22,7 +22,8 @@ class AdmissionStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
-                 patch("gway_agent_ops.nonblocking.shutil.which", return_value=None):
+                 patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"), \
+             patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
                 submit("owner/repo#1", "2026-10-13T15:00:00Z",
                        allowed_repositories=("owner/repo",), state_dir=root)
                 observed = status(state_dir=root)
