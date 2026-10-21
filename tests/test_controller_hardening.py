@@ -150,6 +150,40 @@ class ControllerHardeningTests(unittest.TestCase):
                        state_dir=self.root):
             self.assertFalse(status(state_dir=self.root)["available"])
 
+    def test_collected_transient_unit_may_be_released(self):
+        ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"):
+            submit(ref, at, allowed_repositories=("owner/repo",),
+                   state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
+        runner = Mock(side_effect=[
+            Mock(returncode=5, stdout=""),
+            Mock(returncode=0, stdout="LoadState=not-found\\nActiveState=inactive\\n"),
+            Mock(returncode=3, stdout="unknown\\n")])
+        result = release(ref, at, state_dir=self.root, runner=runner)
+        self.assertEqual(result["state"], "released")
+        self.assertEqual(runner.call_count, 3)
+        self.assertEqual(status(state_dir=self.root)["available"], True)
+
+    def test_collected_unit_rejects_uncertain_or_active_systemd_state(self):
+        ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
+        with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
+             patch("gway_agent_ops.nonblocking._launch_prerequisites", return_value="/usr/bin/agent"):
+            submit(ref, at, allowed_repositories=("owner/repo",),
+                   state_dir=self.root, runner=Mock(return_value=Mock(returncode=1)))
+        for properties in ("LoadState=loaded\\nActiveState=active\\n",
+                           "LoadState=not-found\\nActiveState=activating\\n",
+                           "LoadState=not-found\\n",
+                           "LoadState=not-found\\nActiveState=inactive\\n"):
+            with self.subTest(properties=properties):
+                code = 1 if properties.endswith("inactive\\n") else 0
+                runner = Mock(side_effect=[
+                    Mock(returncode=5, stdout=""),
+                    Mock(returncode=code, stdout=properties)])
+                with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
+                    release(ref, at, state_dir=self.root, runner=runner)
+                self.assertFalse(status(state_dir=self.root)["available"])
+
     def test_failed_release_keeps_reservation_after_restart(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with patch("gway_agent_ops.nonblocking.resolve", return_value={}), \
