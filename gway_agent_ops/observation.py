@@ -51,7 +51,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             report = json.loads(path.read_text(encoding="utf-8"))
             return {"issue": ref, "at": at, "state": report["status"],
                     "exit_code": report.get("exit_code")}
-    return {"issue": ref, "at": at, "state": "accepted"}
+    return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
 
 
 def _pending_request(root: Path, ref: str, at: str) -> dict:
@@ -64,4 +64,16 @@ def _pending_request(root: Path, ref: str, at: str) -> dict:
     request = json.loads(path.read_text(encoding="utf-8"))
     if request.get("issue") != ref or request.get("at") != at:
         raise ValueError("invalid request journal")
-    return {"issue": ref, "at": at, "state": "requested"}
+    return {"issue": ref, "at": at, "state": "requested", **_provenance(root, ref, at)}
+
+
+def _provenance(root: Path, ref: str, at: str) -> dict:
+    digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
+    path = root / "requests" / (digest + ".json")
+    if path.is_symlink() or not path.is_file():
+        return {}
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if record.get("issue") != ref or record.get("at") != at:
+        return {}
+    return {key: record[key] for key in ("source", "trigger")
+            if isinstance(record.get(key), str)}
