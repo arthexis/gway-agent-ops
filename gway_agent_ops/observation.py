@@ -23,7 +23,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         record = json.loads(released.read_text(encoding="utf-8"))
         if record.get("issue") != ref or record.get("at") != at:
             raise ValueError("invalid release journal")
-        return {"issue": ref, "at": at, "state": "released"}
+        return {"issue": ref, "at": at, "state": "released", **_provenance(root, ref, at)}
     ledger = root / "accepted.jsonl"
     if not ledger.exists():
         return _pending_request(root, ref, at)
@@ -45,12 +45,12 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 report = json.loads(path.read_text(encoding="utf-8"))
                 state = report.get("status")
                 if state not in ("finished", "codex_failed", "interrupted"):
-                    return {"issue": ref, "at": at, "state": "reported_unknown"}
+                    return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
-                        "reported": True, "exit_code": report.get("exit_code")}
+                        "reported": True, "exit_code": report.get("exit_code"),\n                        **_provenance(root, ref, at)}
             report = json.loads(path.read_text(encoding="utf-8"))
             return {"issue": ref, "at": at, "state": report["status"],
-                    "exit_code": report.get("exit_code")}
+                    "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
     return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
 
 
