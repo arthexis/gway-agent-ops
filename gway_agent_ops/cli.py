@@ -191,7 +191,9 @@ def main(argv=None):
         from .github_issues import IssueRejected
         try:
             allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
-            data = submit(args.ref, args.at, allowed_repositories=allowed,\n                          source=args.origin, trigger=("authenticated-agent-issue"\n                          if args.origin == "remote-api" else "cli-submit"))
+            data = submit(args.ref, args.at, allowed_repositories=allowed,
+                          source=args.origin, trigger=("authenticated-agent-issue"
+                          if args.origin == "remote-api" else "cli-submit"))
             result = envelope("submit", "ok", data=data)
             code = 0
         except IssueRejected as exc:
