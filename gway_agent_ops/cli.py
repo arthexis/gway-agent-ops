@@ -40,6 +40,7 @@ def build_parser():
     submission = sub.add_parser("submit", help="Request a trusted issue without waiting for execution")
     submission.add_argument("ref")
     submission.add_argument("--at", required=True)
+    submission.add_argument("--origin", choices=("direct-cli", "remote-api"), default="direct-cli")
     submission.add_argument("--json", action="store_true")
     report = sub.add_parser("report", help="Deliver retained GitHub reports without invoking Codex")
     report.add_argument("--json", action="store_true")
@@ -190,7 +191,7 @@ def main(argv=None):
         from .github_issues import IssueRejected
         try:
             allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
-            data = submit(args.ref, args.at, allowed_repositories=allowed)
+            data = submit(args.ref, args.at, allowed_repositories=allowed,\n                          source=args.origin, trigger=("authenticated-agent-issue"\n                          if args.origin == "remote-api" else "cli-submit"))
             result = envelope("submit", "ok", data=data)
             code = 0
         except IssueRejected as exc:
