@@ -70,7 +70,8 @@ def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str |
 
 
 def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
-           state_dir: Path | None = None, runner=subprocess.run,\n           source: str = "direct-cli", trigger: str = "cli-submit") -> dict:
+           state_dir: Path | None = None, runner=subprocess.run,
+           source: str = "direct-cli", trigger: str = "cli-submit") -> dict:
     if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
     if not isinstance(at, str):
@@ -126,7 +127,8 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         executable = _launch_prerequisites()
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"issue": ref, "at": at, "state": "requested",\n                       "source": source, "trigger": trigger}, handle)
+            json.dump({"issue": ref, "at": at, "state": "requested",
+                       "source": source, "trigger": trigger}, handle)
             handle.flush()
             os.fsync(handle.fileno())
         directory = os.open(requests, os.O_RDONLY)
