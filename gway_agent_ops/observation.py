@@ -47,7 +47,8 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 if state not in ("finished", "codex_failed", "interrupted"):
                     return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
-                        "reported": True, "exit_code": report.get("exit_code"),\n                        **_provenance(root, ref, at)}
+                        "reported": True, "exit_code": report.get("exit_code"),
+                        **_provenance(root, ref, at)}
             report = json.loads(path.read_text(encoding="utf-8"))
             return {"issue": ref, "at": at, "state": report["status"],
                     "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
