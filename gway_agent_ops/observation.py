@@ -23,7 +23,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         record = json.loads(released.read_text(encoding="utf-8"))
         if record.get("issue") != ref or record.get("at") != at:
             raise ValueError("invalid release journal")
-        return {"issue": ref, "at": at, "state": "released"}
+        return {"issue": ref, "at": at, "state": "released", **_provenance(root, ref, at)}
     ledger = root / "accepted.jsonl"
     if not ledger.exists():
         return _pending_request(root, ref, at)
@@ -45,13 +45,14 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 report = json.loads(path.read_text(encoding="utf-8"))
                 state = report.get("status")
                 if state not in ("finished", "codex_failed", "interrupted"):
-                    return {"issue": ref, "at": at, "state": "reported_unknown"}
+                    return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
-                        "reported": True, "exit_code": report.get("exit_code")}
+                        "reported": True, "exit_code": report.get("exit_code"),
+                        **_provenance(root, ref, at)}
             report = json.loads(path.read_text(encoding="utf-8"))
             return {"issue": ref, "at": at, "state": report["status"],
-                    "exit_code": report.get("exit_code")}
-    return {"issue": ref, "at": at, "state": "accepted"}
+                    "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
+    return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
 
 
 def _pending_request(root: Path, ref: str, at: str) -> dict:
@@ -64,4 +65,16 @@ def _pending_request(root: Path, ref: str, at: str) -> dict:
     request = json.loads(path.read_text(encoding="utf-8"))
     if request.get("issue") != ref or request.get("at") != at:
         raise ValueError("invalid request journal")
-    return {"issue": ref, "at": at, "state": "requested"}
+    return {"issue": ref, "at": at, "state": "requested", **_provenance(root, ref, at)}
+
+
+def _provenance(root: Path, ref: str, at: str) -> dict:
+    digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
+    path = root / "requests" / (digest + ".json")
+    if path.is_symlink() or not path.is_file():
+        return {}
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if record.get("issue") != ref or record.get("at") != at:
+        return {}
+    return {key: record[key] for key in ("source", "trigger")
+            if isinstance(record.get(key), str)}
