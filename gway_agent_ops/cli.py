@@ -233,7 +233,9 @@ def main(argv=None):
         from .admission_status import status as admission_status
         try:
             admission = admission_status()
-            data = status_data(active=not admission["available"])
+            from .codex_budget import read_budgets
+            budgets = read_budgets()
+            data = status_data(active=not admission["available"], **budgets)
             data["admission"] = admission
             result, code = envelope("status", "ok", data=data), 0
         except (ValueError, OSError, KeyError, TypeError):
