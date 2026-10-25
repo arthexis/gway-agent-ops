@@ -21,5 +21,5 @@ def test_export_stays_unmodified_and_exception_is_local():
                "targets": [{"name": "csms", "repository": "arthexis/ocpp-csms"}]}
     revision, repos = parse_snapshot(json.dumps(payload))
     assert revision == payload["revision"]
-    assert repos == ["arthexis/gway-remote", "arthexis/ocpp-csms"] or set(repos) == {"arthexis/gway-remote", "arthexis/ocpp-csms"}
+    assert set(repos) == {"arthexis/gway-remote", "arthexis/ocpp-csms"}
     assert len(payload["targets"]) == 1
