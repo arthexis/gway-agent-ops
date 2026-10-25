@@ -5,6 +5,15 @@ import re
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37})/[A-Za-z0-9_.-]+")
 SHA = re.compile(r"[0-9a-f]{40}")
 
+# Only controller exception: eligible for Agent Ops, never a deploy target.
+CONTROLLER_REPOSITORY = "arthexis/gway-remote"
+
+
+def agent_repositories(repositories):
+    if not repositories:
+        return tuple()
+    return tuple(sorted(set(repositories) | {CONTROLLER_REPOSITORY}))
+
 def validate_snapshot(payload):
     if not isinstance(payload, dict) or set(payload) != {"schema", "revision", "targets"}:
         raise ValueError("invalid registry document")
@@ -22,7 +31,7 @@ def validate_snapshot(payload):
             raise ValueError("duplicate or invalid target")
         names.add(name)
         repos.add(repo)
-    return payload["revision"], sorted(repos)
+    return payload["revision"], list(agent_repositories(repos))
 
 def parse_snapshot(raw):
     return validate_snapshot(json.loads(raw))
