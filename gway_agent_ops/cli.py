@@ -1,4 +1,5 @@
 """CLI contract only: this foundation never executes Codex."""
+from .repository_registry import agent_repositories
 import argparse
 import os
 from pathlib import Path
@@ -202,7 +203,7 @@ def main(argv=None):
         from .nonblocking import submit
         from .github_issues import IssueRejected
         try:
-            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             data = submit(args.ref, args.at, allowed_repositories=allowed,
                           source=args.origin, trigger=("authenticated-agent-issue"
                           if args.origin == "remote-api" else "cli-submit"))
@@ -271,7 +272,7 @@ def main(argv=None):
         from .executor import preview, ExecutionError
         from .github_issues import IssueRejected
         try:
-            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             data = preview(args.ref, allowed_repositories=allowed)
             result, code = envelope("preview", "ok", data=data), 0
         except (ValueError, OSError, IssueRejected, ExecutionError):
@@ -298,7 +299,7 @@ def main(argv=None):
         from .github_issues import IssueRejected
         from .executor import ExecutionError, execute
         try:
-            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
             if not workspace:
                 raise ExecutionError("workspace_root_missing")
@@ -330,7 +331,7 @@ def main(argv=None):
         from .issue_views import list_issues
         from .github_issues import IssueRejected
         try:
-            allowed = tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip())
+            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             data = {"issues": list_issues(allowed_repositories=allowed),
                     "agent": __import__("socket").gethostname().lower()}
             status, error, code = "ok", None, 0
