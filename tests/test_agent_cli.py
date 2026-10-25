@@ -1,6 +1,9 @@
 import contextlib
 import io
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from gway_agent_ops.cli import main, parse_issue_ref, EVENTS, NOT_IMPLEMENTED
 
@@ -45,3 +48,14 @@ class AgentCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
             main(["issue", "invalid"])
         self.assertEqual(result.exception.code, 2)
+
+    def test_invalid_runtime_configuration_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "runtime.env"
+            path.write_text("UNSAFE=1\n")
+            path.chmod(0o600)
+            with patch("gway_agent_ops.environment.CONFIGURATION", path), \
+                    patch.dict(os.environ, {}, clear=True), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["issues", "--json"]), 1)
+        self.assertIn("runtime_configuration_invalid", output.getvalue())
