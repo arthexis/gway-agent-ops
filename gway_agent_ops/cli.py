@@ -7,6 +7,7 @@ import sys
 from .contracts import envelope, json_line, status_data
 from . import __version__
 from .adopt import inspect, adopt as adopt_config
+from .environment import load_runtime_environment
 from .verify import verify
 from .dispatch import timestamp
 
@@ -89,6 +90,17 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        load_runtime_environment()
+    except (OSError, UnicodeError, ValueError):
+        result = envelope(args.command, "error", error={
+            "code": "runtime_configuration_invalid",
+            "message": "Agent runtime configuration is unavailable"})
+        if getattr(args, "json", False):
+            print(json_line(result))
+        else:
+            print("agent: runtime configuration is unavailable", file=sys.stderr)
+        return 1
     if args.command == "issue":
         try:
             parse_issue_ref(args.ref, args.repo)
