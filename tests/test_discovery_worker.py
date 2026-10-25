@@ -43,5 +43,5 @@ def test_listing_failure_preserves_existing_tasks(tmp_path):
             raise OSError("offline")
         report = tick(ledger, snapshot=lambda: SNAPSHOT,
                       listing=offline, resolver=valid)
-        assert report["errors"] == ["listing_unavailable:arthexis/gway-agent-ops"]
+        assert report["errors"] == ["listing_unavailable:arthexis/gway-agent-ops", "listing_unavailable:arthexis/gway-remote"]
         assert ledger.get(ISSUE)["state"] == "requested"
