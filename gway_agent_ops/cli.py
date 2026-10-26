@@ -312,7 +312,8 @@ def main(argv=None):
                 raise ExecutionError("workspace_root_missing")
             data = audit(args.ref, scope=args.scope, at=args.at,
                          allowed_repositories=allowed, workspace_root=Path(workspace))
-            good = (data["status"] == "finished" and data["receipt_state"] == "receipt_valid")
+            good = (data["status"] == "finished" and data["receipt_state"] == "receipt_valid"
+                    and all(value == "PASS" for value in data["receipt"]["checks"].values()))
             status, code = ("ok", 0) if good else ("degraded", 1)
             error = None if good else {"code": data["receipt_state"],
                                        "message": "No validated audit PASS evidence"}
