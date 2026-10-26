@@ -52,19 +52,23 @@ class AuditTests(unittest.TestCase):
         (self.checkout / ".git").mkdir()
         self.state = self.root / "state"
 
-    def run_audit(self, *, output=True, dirty_after=False, exit_code=0, raw=None):
+    def run_audit(self, *, output=True, dirty_after=False, exit_code=0, raw=None,
+                  scope=SCOPE):
         calls = []
         def git_runner(argv, **options):
             calls.append(argv)
             change = " M app.py" if dirty_after and len(calls) == 2 else ""
             return subprocess.CompletedProcess(argv, 0, change, "")
         def runner(argv, **options):
+            self.audit_prompt = options["input"]
             self.assertIn("read-only", argv)
             self.assertEqual(argv[argv.index("--sandbox") + 1], "read-only")
             self.assertNotIn("workspace-write", argv)
             if output:
                 p = Path(argv[argv.index("--output-last-message") + 1])
-                p.write_text(raw if raw is not None else json.dumps(receipt()))
+                document = receipt()
+                document["scope"] = scope
+                p.write_text(raw if raw is not None else json.dumps(document))
             return subprocess.CompletedProcess(argv, exit_code, "SECRET-RAW-STDOUT", "SECRET-RAW-STDERR")
         def resolver(ref, **kwargs):
             return {"repository": "arthexis/example", "number": 19, "comments": 0,
@@ -76,7 +80,7 @@ class AuditTests(unittest.TestCase):
             (home / "config.toml").write_text("test")
             return {"authentication_available": True, "codex_home": str(home),
                     "environment": {"CODEX_HOME": str(home)}}
-        result = audit(ISSUE, scope=SCOPE, at=AT, allowed_repositories=("arthexis/example",),
+        result = audit(ISSUE, scope=scope, at=AT, allowed_repositories=("arthexis/example",),
                        workspace_root=self.root, state_dir=self.state, resolver=resolver,
                        runner=runner, git_runner=git_runner, runtime=runtime)
         return result
@@ -97,6 +101,18 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(result["status"], "finished")
         self.assertEqual(result["receipt_state"], "receipt_missing")
         self.assertFalse(observe(ISSUE, AT, state_dir=self.state)["receipt_retained"])
+
+    def test_generic_scope_remains_offline_only(self):
+        self.run_audit()
+        self.assertIn("Do not execute remote or network operations.", self.audit_prompt)
+        self.assertNotIn("bounded ICMP probe", self.audit_prompt)
+
+    def test_exact_field_scope_allows_only_bounded_read_only_checks(self):
+        self.run_audit(scope="gway-004-wireguard-readonly-v1")
+        self.assertIn("bounded ICMP probe", self.audit_prompt)
+        self.assertIn("TCP connection test to port 22", self.audit_prompt)
+        self.assertIn("Never reboot", self.audit_prompt)
+        self.assertIn("Never prompt for, add, copy, replace, or relax SSH", self.audit_prompt)
 
     def test_workspace_diff_blocks_receipt(self):
         result = self.run_audit(dirty_after=True)
