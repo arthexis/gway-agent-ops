@@ -39,6 +39,11 @@ def build_parser():
     issue.add_argument("--repo")
     issue.add_argument("--at", metavar="TIMESTAMP", help="Frozen ISO-8601 dispatch timestamp for idempotent retries")
     issue.add_argument("--json", action="store_true", help="Machine-readable response")
+    audit_parser = sub.add_parser("audit", help="Explicit read-only audit with validated receipt")
+    audit_parser.add_argument("ref")
+    audit_parser.add_argument("--scope", required=True, help="Named T1-T4 audit scope")
+    audit_parser.add_argument("--at", metavar="TIMESTAMP")
+    audit_parser.add_argument("--json", action="store_true")
     submission = sub.add_parser("submit", help="Request a trusted issue without waiting for execution")
     submission.add_argument("ref")
     submission.add_argument("--at", required=True)
@@ -293,6 +298,37 @@ def main(argv=None):
             print(json_line(result))
         else:
             print(result["data"]["state"] if code == 0 else "Observation unavailable")
+        return code
+    if args.command == "audit":
+        from .audit import audit
+        from .dispatch import Busy, Duplicate
+        from .github_issues import IssueRejected
+        from .executor import ExecutionError
+        try:
+            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get(
+                "GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
+            workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
+            if not workspace:
+                raise ExecutionError("workspace_root_missing")
+            data = audit(args.ref, scope=args.scope, at=args.at,
+                         allowed_repositories=allowed, workspace_root=Path(workspace))
+            good = (data["status"] == "finished" and data["receipt_state"] == "receipt_valid")
+            status, code = ("ok", 0) if good else ("degraded", 1)
+            error = None if good else {"code": data["receipt_state"],
+                                       "message": "No validated audit PASS evidence"}
+        except (Busy, Duplicate, IssueRejected, ExecutionError, OSError, ValueError) as exc:
+            status, code, data = "error", 1, None
+            error = {"code": getattr(exc, "code", "audit_unavailable"),
+                     "message": "Read-only audit unavailable"}
+        # Reporting retries are independent of execution and never re-invoke Codex.
+        try:
+            from .reporting import flush
+            flush()
+        except (OSError, ValueError):
+            pass
+        result = envelope("audit", status, data=data, error=error)
+        print(json_line(result) if args.json else
+              (data["receipt_state"] if data else "Audit unavailable"))
         return code
     if args.command == "issue":
         from .dispatch import Busy, Duplicate
