@@ -142,6 +142,9 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
             continue
         try:
             record = json.loads(path.read_text())
+            if not record.get("delivery_attempted"):
+                record["delivery_attempted"] = True
+                _write(path, record)
             deliver(record, runner=runner)
             _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code"),
                          "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
