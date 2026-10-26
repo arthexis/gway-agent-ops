@@ -114,6 +114,13 @@ class AuditTests(unittest.TestCase):
         self.assertIn("Never reboot", self.audit_prompt)
         self.assertIn("Never prompt for, add, copy, replace, or relax SSH", self.audit_prompt)
 
+    def test_receipt_prompt_maps_issue_status_words_to_schema_states(self):
+        self.run_audit(scope="gway-004-wireguard-readonly-v1")
+        self.assertIn("without Markdown, a code fence, commentary", self.audit_prompt)
+        self.assertIn("pending operator approval to BLOCKED", self.audit_prompt)
+        self.assertIn("audited completed status surface to PASS", self.audit_prompt)
+        self.assertIn('"checks":{"T1":"UNKNOWN"', self.audit_prompt)
+
     def test_workspace_diff_blocks_receipt(self):
         result = self.run_audit(dirty_after=True)
         self.assertEqual(result["receipt_state"], "audit_workspace_modified")

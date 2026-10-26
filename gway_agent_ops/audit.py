@@ -90,6 +90,14 @@ def audit(ref: str, *, scope: str, at: str | None = None,
                 "version (integer 1), issue, at, scope, checks (object with T1,T2,T3,T4, each "
                 "PASS/BLOCKED/UNKNOWN), summary (brief sanitized plain text). "
                 f"Identity: issue={key}, at={accepted['at']}, scope={scope}. "
+                "Your entire final response must be one minified JSON object, without Markdown, "
+                "a code fence, commentary, or additional keys. Use only PASS, BLOCKED, or UNKNOWN "
+                "for every check: map pending operator approval to BLOCKED, and map an audited "
+                "completed status surface to PASS. The summary must be under 240 ASCII characters "
+                "and contain only letters, digits, spaces, and . , ; : ( ) / _ + # % = -. "
+                f'Use this exact shape: {{"version":1,"issue":"{key}","at":"{accepted["at"]}",'
+                f'"scope":"{scope}","checks":{{"T1":"UNKNOWN","T2":"UNKNOWN",'
+                '"T3":"UNKNOWN","T4":"UNKNOWN"},"summary":"sanitized summary"}}. '
                 "Never include logs, source code, prompts, addresses, credentials or tokens. "
                 "Unknown evidence must be UNKNOWN, never inferred PASS. "
                 f"Issue title: {issue['title']}\n"
