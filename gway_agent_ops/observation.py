@@ -58,7 +58,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                     "execution_terminal": True,
                     "receipt_state": report.get("receipt_state", "not_requested"),
                     "receipt_retained": report.get("receipt_state") == "receipt_valid",
-                    "delivery_attempted": False, "delivery_confirmed": False,
+                    "delivery_attempted": report.get("delivery_attempted", False), "delivery_confirmed": False,
                     "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
     return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
 
