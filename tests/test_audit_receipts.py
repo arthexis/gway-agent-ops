@@ -103,6 +103,16 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(result["receipt_state"], "audit_workspace_modified")
         self.assertIsNone(result["receipt"])
 
+    def test_github_failure_retains_receipt_and_delivery_attempt(self):
+        self.run_audit()
+        def failing(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 1, "", "")
+        self.assertEqual(flush(state_dir=self.state, runner=failing)["pending"], 1)
+        observed = observe(ISSUE, AT, state_dir=self.state)
+        self.assertTrue(observed["receipt_retained"])
+        self.assertTrue(observed["delivery_attempted"])
+        self.assertFalse(observed["delivery_confirmed"])
+
     def test_invalid_receipt_does_not_post_raw(self):
         result = self.run_audit(raw=json.dumps({**receipt(), "summary": "password secret"}))
         self.assertEqual(result["receipt_state"], "receipt_invalid")
