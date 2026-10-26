@@ -39,7 +39,8 @@ def _write(path: Path, data: dict) -> None:
 
 
 def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
-            status: str = "interrupted", exit_code: int | None = None) -> dict:
+            status: str = "interrupted", exit_code: int | None = None,
+            audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None) -> dict:
     """Persist sanitized report prior to attempting network delivery."""
     root = Path(state_dir or DEFAULT_STATE)
     _private_directory(root)
@@ -55,6 +56,21 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
         raise ValueError("invalid reporting status")
     record = {"issue": issue, "at": at, "status": status, "exit_code": exit_code,
               "marker": "agent-dispatch:" + identity}
+    if audit:
+        from .audit_receipt import validate
+        allowed = ("receipt_valid", "receipt_missing", "receipt_invalid",
+                   "audit_workspace_modified", "codex_failed", "codex_timeout",
+                   "codex_unavailable")
+        if receipt_state not in allowed:
+            raise ValueError("invalid receipt state")
+        if receipt_state == "receipt_valid":
+            if not isinstance(receipt, dict):
+                raise ValueError("missing receipt")
+            record["receipt"] = validate(receipt, issue=issue, at=at, scope=receipt.get("scope"))
+        elif receipt is not None:
+            raise ValueError("unvalidated receipt")
+        record["audit"] = True
+        record["receipt_state"] = receipt_state
     _write(path, record)
     return record
 
@@ -86,6 +102,27 @@ def deliver(record: dict, *, runner=subprocess.run) -> None:
     message = (f"Agent invocation {record['at']}: {record['status']}."
                + (f" Codex exit code: {record['exit_code']}." if record["exit_code"] is not None else "")
                + f"\n<!-- {record['marker']} -->")
+    if record.get("audit") is True:
+        state = record.get("receipt_state")
+        if state == "receipt_valid":
+            from .audit_receipt import validate
+            receipt = record.get("receipt")
+            if not isinstance(receipt, dict):
+                raise ValueError("invalid stored receipt")
+            receipt = validate(receipt, issue=record["issue"], at=record["at"],
+                               scope=receipt.get("scope"))
+            checks = " ".join(f"{name}={receipt['checks'][name]}" for name in ("T1", "T2", "T3", "T4"))
+            message = (f"Agent read-only audit {record['at']}: validated receipt. "
+                       f"Scope: {receipt['scope']}. {checks}. "
+                       f"Summary: {receipt['summary']}."
+                       f"\n<!-- {record['marker']} -->")
+        else:
+            if state not in ("receipt_missing", "receipt_invalid", "audit_workspace_modified",
+                             "codex_failed", "codex_timeout", "codex_unavailable"):
+                raise ValueError("invalid stored receipt")
+            message = (f"Agent read-only audit {record['at']}: {state}; "
+                       f"execution={record['status']}. No validated PASS evidence."
+                       f"\n<!-- {record['marker']} -->")
     _api([endpoint, "-f", f"body={message}"], runner=runner)
 
 
@@ -105,8 +142,13 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
             continue
         try:
             record = json.loads(path.read_text())
+            if not record.get("delivery_attempted"):
+                record["delivery_attempted"] = True
+                _write(path, record)
             deliver(record, runner=runner)
-            _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code")})
+            _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code"),
+                         "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
+                         "receipt": record.get("receipt")})
             path.unlink()
             sent += 1
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
