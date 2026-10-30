@@ -3,6 +3,25 @@
 Source archive for local agent/approval helpers that should not remain as
 ad-hoc state under the GWAY field workspace.
 
+## Canonical managed deployment (issue #306)
+
+On the appliance, use the owner-managed `deploy.sh` with a pinned checkout:
+
+```sh
+sh ./deploy.sh --expected-sha "$(git rev-parse HEAD)"
+```
+
+This installs an immutable `~/.local/share/gway-agent-ops/releases/<SHA>`
+environment and atomically updates `~/.local/bin/agent`. The installer holds
+a nonblocking owner lock, independently verifies the installed `agent` CLI,
+records successful revisions, maintains `current`/`previous` links, and
+restores the previous executable link if installed verification fails.
+The installer never adopts credentials, executes Codex, or deletes releases.
+Private state remains outside the immutable release directory.
+
+`gway-remote` invokes this canonical script, not a separate Agent Ops
+installer. Do not invoke the wrapper as root. **Pruning remains disabled.**
+
 ## GWAY-001 agent issue routing
 
 Before submitting a field-agent task, add the exact GitHub label `gway-001`.
