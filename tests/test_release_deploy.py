@@ -1,5 +1,4 @@
 """Focused tests for the owner-managed release activation contract."""
-import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -35,8 +34,7 @@ class CanonicalDeployTests(unittest.TestCase):
             if argv == [str(self.entry), failing]:
                 raise subprocess.CalledProcessError(1, argv)
             return subprocess.CompletedProcess(argv, 0)
-        with patch.object(deployment.subprocess, "check_output", return_value=self.sha+"\n"), \\
-             patch.object(deployment, "os", wraps=os) as ignored:
+        with patch.object(deployment.subprocess, "check_output", return_value=self.sha+"\\n"):
             return deployment.install(self.source, expected_sha=self.sha, home=self.home, run=run)
 
     def test_success_creates_current_previous_and_history_without_deleting(self):
