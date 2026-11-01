@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -194,13 +195,118 @@ def install(source, *, expected_sha=None, home=None, run=subprocess.run):
         return {"installed_sha": sha, "active": str(destination), "prune_enabled": False}
 
 
+
+def prune(*, home=None, apply=False, limit=64):
+    """Owner-locked release retention; leave verification history and data alone."""
+    home = Path(home) if home is not None else Path.home()
+    if os.geteuid() == 0:
+        raise ValueError("do not prune Agent Ops as root")
+    with locked(home) as root:
+        releases = root / "releases"
+        _directory(releases)
+        current = _release_for(root / "current", releases)
+        previous = _release_for(root / "previous", releases)
+        entry = _release_for(home / ".local/bin/agent", releases)
+        if current is None or entry is None:
+            raise ValueError("missing active Agent Ops pointer")
+        protected = {current, previous, entry} - {None}
+        names = sorted(releases.iterdir())
+        if len(names) > 4096:
+            raise ValueError("release inventory too large")
+        candidates = []
+        legacy = []
+        saved = []
+        for path in names:
+            if not SHA.fullmatch(path.name):
+                legacy.append(path.name)
+                continue
+            info = _directory(path)
+            if path in protected:
+                saved.append({"name": path.name, "reasons": [
+                    reason for reason, target in (("current", current), ("previous", previous),
+                                                  ("cli", entry)) if target == path]})
+            else:
+                candidates.append({"name": path.name, "identity": [info.st_dev, info.st_ino]})
+        report = {"owner": "gway-agent-ops", "root": str(root),
+                  "status": "blocked" if legacy else "candidates_ready",
+                  "dry_run": not apply, "protected": saved,
+                  "candidates": candidates, "legacy": legacy,
+                  "errors": ["unrecognized release entries present"] if legacy else []}
+        if not apply:
+            return report
+        report["deleted"] = []
+        report["skipped"] = []
+        if report["errors"]:
+            return report
+        if len(candidates) > limit or not shutil.rmtree.avoids_symlink_attacks:
+            report["errors"].append("unsafe or excessive deletion candidates")
+            report["status"] = "blocked"
+            return report
+        for item in candidates:
+            path = releases / item["name"]
+            # Verify pointer state again immediately before each removal.
+            if any(_release_for(link, releases) == path for link in
+                   (root / "current", root / "previous", home / ".local/bin/agent")):
+                report["skipped"].append(item["name"])
+                continue
+            try:
+                info = _directory(path)
+                if [info.st_dev, info.st_ino] != item["identity"]:
+                    raise ValueError("release identity changed")
+                shutil.rmtree(path)
+                report["deleted"].append(item["name"])
+            except (OSError, ValueError) as exc:
+                report["errors"].append(f"{item['name']}: {type(exc).__name__}: {exc}")
+                break
+        report["status"] = "partial" if report["errors"] else "completed"
+        return report
+
+
+def format_prune(report):
+    applied = "deleted" in report
+    lines = ["AGENT OPS release retention — " + ("apply" if applied else "dry-run"),
+             f"Root: {report['root']}",
+             f"Status: {report['status']} | Protected: {len(report['protected'])} | "
+             f"Candidates: {len(report['candidates'])} | Legacy: {len(report['legacy'])}"]
+    for label, values in (("Protected", report["protected"]),
+                          ("Deletion candidates", report["candidates"])):
+        if values:
+            lines.append(label + ":")
+            for value in values:
+                lines.append("  " + value["name"] +
+                             (" (" + ", ".join(value["reasons"]) + ")" if value.get("reasons") else ""))
+    if report["legacy"]:
+        lines.extend("  legacy: " + name for name in report["legacy"])
+    if report["errors"]:
+        lines.extend("  ERROR: " + error for error in report["errors"])
+    if applied:
+        lines.append(f"Deleted {len(report['deleted'])} release(s).")
+        lines.extend("  " + name for name in report["deleted"])
+    else:
+        lines.append("No releases deleted (dry-run).")
+    return "\n".join(lines)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Canonical Agent Ops appliance installation")
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--expected-sha")
+    parser.add_argument("--prune", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--apply", action="store_true")
+    parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(install(args.source, expected_sha=args.expected_sha), sort_keys=True))
+        if args.prune:
+            result = prune(apply=args.apply)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_prune(result))
+            if result["errors"]:
+                parser.exit(1)
+        else:
+            if args.apply or args.dry_run or args.json:
+                parser.error("prune-specific options require --prune")
+            print(json.dumps(install(args.source, expected_sha=args.expected_sha), sort_keys=True))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         parser.exit(1, "Agent Ops installation refused: " + type(exc).__name__ + "\n")
 
