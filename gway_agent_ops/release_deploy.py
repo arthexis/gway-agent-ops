@@ -192,7 +192,7 @@ def install(source, *, expected_sha=None, home=None, run=subprocess.run):
         except OSError:
             print("Agent Ops: verification history unavailable; retention remains blocked",
                   file=sys.stderr)
-        return {"installed_sha": sha, "active": str(destination), "prune_enabled": False}
+        return {"installed_sha": sha, "active": str(destination), "prune_enabled": True}
 
 
 
