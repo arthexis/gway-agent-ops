@@ -40,7 +40,7 @@ def _write(path: Path, data: dict) -> None:
 
 def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
             status: str = "interrupted", exit_code: int | None = None,
-            audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None) -> dict:
+            audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None,\n            findings: dict | None = None, findings_state: str | None = None) -> dict:
     """Persist sanitized report prior to attempting network delivery."""
     root = Path(state_dir or DEFAULT_STATE)
     _private_directory(root)
@@ -102,6 +102,24 @@ def deliver(record: dict, *, runner=subprocess.run) -> None:
     message = (f"Agent invocation {record['at']}: {record['status']}."
                + (f" Codex exit code: {record['exit_code']}." if record["exit_code"] is not None else "")
                + f"\n<!-- {record['marker']} -->")
+    if record.get("findings_state") == "validated":
+        from .findings import parse_findings, MARKER
+        report = parse_findings(MARKER + json.dumps(record.get("findings")))
+        if report is None:
+            raise ValueError("invalid stored findings")
+        lines = [f"Agent findings for {record['at']}", "",
+                 "**Summary:** " + report["summary"], "", "**Findings:**"]
+        lines.extend("- " + item for item in report["findings"])
+        lines.extend(["", "**Evidence:**"])
+        lines.extend("- " + item for item in report["evidence"])
+        lines.extend(["", "**Limitations:** " + report["limitations"],
+                      "", f"<!-- {record['marker']} -->"])
+        message = "\\n".join(lines)
+    elif record.get("findings_state") == "missing_or_invalid":
+        message = (f"Agent invocation {record['at']}: Codex exited successfully, "
+                   "but the required structured findings report was missing or invalid. "
+                   "Work is not validated; manual review or a new authorized run is required."
+                   + f"\\n<!-- {record['marker']} -->")
     if record.get("audit") is True:
         state = record.get("receipt_state")
         if state == "receipt_valid":
@@ -148,7 +166,7 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
             deliver(record, runner=runner)
             _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code"),
                          "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
-                         "receipt": record.get("receipt")})
+                         "receipt": record.get("receipt"),\n                         "findings_state": record.get("findings_state")})
             path.unlink()
             sent += 1
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
