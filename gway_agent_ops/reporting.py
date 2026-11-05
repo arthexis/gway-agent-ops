@@ -167,7 +167,8 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
             deliver(record, runner=runner)
             _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code"),
                          "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
-                         "receipt": record.get("receipt"),\n                         "findings_state": record.get("findings_state")})
+                         "receipt": record.get("receipt"),
+                         "findings_state": record.get("findings_state")})
             path.unlink()
             sent += 1
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
