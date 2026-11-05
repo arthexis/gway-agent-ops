@@ -221,7 +221,27 @@ def main(argv=None):
                        if reason == "invalid_issue_labels" else "Unable to request invocation")
             result = envelope("submit", "error", error={"code": reason, "message": message})
             code = 1
-        except (ValueError, OSError, KeyError, TypeError):
+        except ValueError as exc:
+            # Only expose recognized, non-sensitive preflight codes. Never
+            # serialize arbitrary exception text from filesystem or GitHub.
+            preflight = {
+                "repository_allowlist_missing": "Configure the Agent Ops repository allowlist",
+                "agent_cli_not_found": "Agent Ops executable is unavailable",
+                "agent_workspace_not_configured": "Configure the Agent Ops workspace root",
+                "agent_workspace_unavailable": "Agent Ops workspace is unavailable",
+                "agent_workspace_unsafe": "Agent Ops workspace permissions are unsafe",
+                "agent_systemd_run_unavailable": "systemd-run is unavailable",
+                "agent_user_bus_unavailable": "Agent Ops user systemd bus is unavailable",
+                "invalid_issue_ref": "Invalid issue reference",
+                "invalid_timestamp": "Invalid dispatch timestamp",
+            }
+            reason = str(exc)
+            safe = reason in preflight
+            result = envelope("submit", "error", error={
+                "code": reason if safe else "submission_unavailable",
+                "message": preflight[reason] if safe else "Unable to request invocation"})
+            code = 1
+        except (OSError, KeyError, TypeError):
             result = envelope("submit", "error", error={
                 "code": "submission_unavailable", "message": "Unable to request invocation"})
             code = 1
