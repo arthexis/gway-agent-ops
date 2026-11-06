@@ -36,7 +36,7 @@ SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 def _repositories():
     from .repository_registry import agent_repositories
-    return tuple(agent_repositories())
+    return agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
 
 
 def call_tool(name, args):
