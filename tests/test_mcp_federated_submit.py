@@ -11,8 +11,8 @@ class FederatedSubmitTests(unittest.TestCase):
             self.assertTrue(tools[name]["annotations"]["readOnlyHint"])
 
     def test_submit_uses_existing_nonblocking_gate(self):
-        with patch.object(mcp_stdio, "_repositories", return_value=("arthexis/gway-agent-ops",)), \\
-             patch.object(mcp_stdio, "issue_submit", return_value={"state": "requested"}) as submit:
+        with (patch.object(mcp_stdio, "_repositories", return_value=("arthexis/gway-agent-ops",)),
+             patch.object(mcp_stdio, "issue_submit", return_value={"state": "requested"}) as submit):
             self.assertEqual(mcp_stdio.call_tool("submit", {
                 "ref": "arthexis/gway-agent-ops#58", "at": "2026-11-07T20:00:00Z"
             }), {"state": "requested"})
