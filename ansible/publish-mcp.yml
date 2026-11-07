@@ -1,0 +1,38 @@
+---
+# Run with: sudo -n ansible-playbook -i localhost, -c local ansible/publish-mcp.yml -e agentops_revision=<40hex>
+- name: Publish pinned AgentOps MCP provider
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    agentops_release_root: /home/arthe/.local/share/gway-agent-ops/releases
+    agentops_manifest_path: /etc/gway-mcp-providers/agentops.json
+  tasks:
+    - name: Require immutable revision
+      ansible.builtin.assert:
+        that:
+          - agentops_revision is defined
+          - agentops_revision is match('^[a-f0-9]{40}$')
+        fail_msg: Invalid AgentOps release SHA
+
+    - name: Verify installed MCP binary
+      ansible.builtin.stat:
+        path: "{{ agentops_release_root }}/{{ agentops_revision }}/bin/agent-mcp"
+        follow: false
+      register: agentops_binary
+
+    - name: Require regular executable in pinned release
+      ansible.builtin.assert:
+        that:
+          - agentops_binary.stat.exists
+          - agentops_binary.stat.isreg
+          - agentops_binary.stat.executable
+          - not agentops_binary.stat.islnk
+
+    - name: Publish root-owned provider manifest atomically
+      ansible.builtin.copy:
+        dest: "{{ agentops_manifest_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+        content: "{{ {'source_id': 'agentops', 'revision': agentops_revision, 'executable': agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp', 'argv': [agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp']} | to_json }}\n"
