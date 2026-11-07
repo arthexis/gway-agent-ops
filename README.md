@@ -310,3 +310,16 @@ pointer, and installed CLI references are preserved. Unknown names, unsafe symli
 lock contention and excessive candidate counts block cleanup. Apply uses the same
 deployment lock and rechecks each candidate before removal. No database, credentials,
 shared dependencies or system services are removed, and deployment never prunes automatically.
+
+## Node-owned MCP provider discovery
+
+The immutable release now installs `bin/agent-mcp`, exposing the read-only MCP
+stdio provider. After deploying an approved release, the node's administrative
+Ansible convergence publishes a root-owned `/etc/gway-mcp-providers/agentops.json`
+manifest with the release SHA and executable path. The presence of that manifest
+in the installation directory is sufficient for automatic discovery: no manual
+approval, tool catalog maintenance, or Watchtower configuration is required.
+
+For diagnostics, run `python3 -m gway_agent_ops.mcp_manifest --release
+~/.local/share/gway-agent-ops/releases/<SHA>` against the verified release.
+A repository checkout alone does not register a provider.
