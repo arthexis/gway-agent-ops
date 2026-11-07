@@ -1,5 +1,6 @@
 """Read-only MCP provider contract regression tests."""
 import unittest
+import json
 from unittest.mock import patch
 
 from gway_agent_ops import mcp_stdio
@@ -29,6 +30,25 @@ class McpStdioTests(unittest.TestCase):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                                    "params": {"name": "preview", "arguments": {"ref": "../secret"}}})
         self.assertTrue(result["result"]["isError"])
+
+    def test_safe_error_classification(self):
+        from gway_agent_ops.github_issues import IssueRejected
+        from gway_agent_ops.executor import ExecutionError
+        cases = [
+            (IssueRejected("repository_not_allowed"), "repository_not_allowed"),
+            (ExecutionError("repository_allowlist_missing"), "repository_allowlist_missing"),
+            (IssueRejected("github_unavailable"), "github_unavailable"),
+            (RuntimeError("token=secret"), "provider_unavailable"),
+        ]
+        for exc, code in cases:
+            with self.subTest(code=code):
+                with patch.object(mcp_stdio, "call_tool", side_effect=exc):
+                    response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 6,
+                        "method": "tools/call", "params": {"name": "issues", "arguments": {}}})
+                result = response["result"]
+                self.assertTrue(result["isError"])
+                self.assertEqual(json.loads(result["content"][0]["text"]), {"error": code})
+                self.assertNotIn("secret", str(result))
 
     def test_initialize_and_notification(self):
         init = mcp_stdio.handle({"jsonrpc": "2.0", "id": 5, "method": "initialize"})
