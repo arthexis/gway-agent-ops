@@ -11,8 +11,9 @@ import re
 import sys
 
 from .admission_status import status as admission_status
-from .executor import preview as issue_preview
+from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
+from .github_issues import IssueRejected
 from .observation import observe
 
 MAX_MESSAGE = 65536
@@ -60,6 +61,27 @@ def call_tool(name, args):
     raise ValueError("invalid_tool")
 
 
+_SAFE_CODES = frozenset({
+    "repository_allowlist_missing", "invalid_repository_allowlist",
+    "repository_not_allowed", "github_unavailable", "issue_not_open",
+    "not_an_issue", "creator_not_allowed", "target_label_missing",
+    "invalid_issue_ref", "invalid_arguments", "invalid_tool",
+    "invalid_timestamp", "invalid_github_response", "invalid_issue",
+    "invalid_issue_labels", "repository_mismatch", "issue_mismatch",
+})
+
+
+def _safe_error(exc):
+    """Stable machine-readable error without exception text or credentials."""
+    code = getattr(exc, "code", None)
+    if code is None and type(exc) is ValueError:
+        code = str(exc)
+    if code not in _SAFE_CODES:
+        code = "provider_unavailable"
+    return {"content": [{"type": "text", "text": json.dumps({"error": code})}],
+            "isError": True}
+
+
 def handle(request):
     if type(request) is not dict or request.get("jsonrpc") != "2.0":
         raise ValueError("invalid_request")
@@ -82,9 +104,8 @@ def handle(request):
         try:
             data = call_tool(params["name"], params.get("arguments", {}))
             result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
-        except (ValueError, RuntimeError, OSError):
-            result = {"content": [{"type": "text", "text": "AgentOps read-only operation unavailable"}],
-                      "isError": True}
+        except (ValueError, RuntimeError, OSError) as exc:
+            result = _safe_error(exc)
     else:
         raise ValueError("method_not_found")
     return {"jsonrpc": "2.0", "id": request["id"], "result": result}
