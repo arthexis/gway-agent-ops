@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 
 [project.scripts]
 agent = "gway_agent_ops.cli:main"
+agent-mcp = "gway_agent_ops.mcp_stdio:main"
 
 [tool.setuptools.packages.find]
 include = ["gway_agent_ops*"]
