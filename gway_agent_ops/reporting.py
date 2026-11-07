@@ -72,6 +72,20 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
             raise ValueError("unvalidated receipt")
         record["audit"] = True
         record["receipt_state"] = receipt_state
+    if findings_state is not None:
+        if findings_state not in ("validated", "missing_or_invalid"):
+            raise ValueError("invalid findings state")
+        if findings_state == "validated":
+            from .findings import parse_findings, MARKER
+            if not isinstance(findings, dict) or parse_findings(
+                    MARKER + json.dumps(findings)) is None:
+                raise ValueError("invalid findings")
+            record["findings"] = findings
+        elif findings is not None:
+            raise ValueError("unexpected findings")
+        record["findings_state"] = findings_state
+    elif findings is not None:
+        raise ValueError("findings state required")
     _write(path, record)
     return record
 
