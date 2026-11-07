@@ -16,6 +16,35 @@ class ReportingTests(unittest.TestCase):
         self.issue = "arthexis/example#19"
         self.at = "2026-10-13T06:00:00.000000Z"
 
+    def test_validated_findings_are_persisted_and_delivered(self):
+        findings = {"summary": "The repository provides a local agent runner.",
+                    "findings": ["The README describes the agent's purpose."],
+                    "evidence": ["README.md contains the project overview."],
+                    "limitations": "Only the README was examined."}
+        record = enqueue(self.issue, self.at, state_dir=self.root,
+                         status="finished", exit_code=0,
+                         findings=findings, findings_state="validated")
+        self.assertEqual(record["findings"], findings)
+        self.assertEqual(record["findings_state"], "validated")
+        calls = []
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            if "per_page=100" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, "[]", "")
+            return subprocess.CompletedProcess(argv, 0, "{}", "")
+        self.assertEqual(flush(state_dir=self.root, runner=runner),
+                         {"sent": 1, "pending": 0})
+        self.assertTrue(any("The repository provides" in str(argv) for argv in calls))
+        delivered = next((self.root / "delivered").glob("*.json"))
+        self.assertEqual(json.loads(delivered.read_text())["findings_state"], "validated")
+
+    def test_missing_findings_are_explicitly_reported(self):
+        record = enqueue(self.issue, self.at, state_dir=self.root,
+                         status="finished", exit_code=0,
+                         findings_state="missing_or_invalid")
+        self.assertEqual(record["findings_state"], "missing_or_invalid")
+        self.assertNotIn("findings", record)
+
     def test_report_delivery_is_durable_and_sanitized(self):
         record = enqueue(self.issue, self.at, state_dir=self.root, status="codex_failed", exit_code=1)
         self.assertNotIn("secret", json.dumps(record))
