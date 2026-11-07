@@ -78,6 +78,9 @@ _SAFE_CODES = frozenset({
     "invalid_issue_ref", "invalid_arguments", "invalid_tool",
     "invalid_timestamp", "invalid_github_response", "invalid_issue",
     "invalid_issue_labels", "repository_mismatch", "issue_mismatch",
+    "agent_cli_not_found", "agent_workspace_not_configured",
+    "agent_workspace_unavailable", "agent_workspace_unsafe",
+    "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
 })
 
 
