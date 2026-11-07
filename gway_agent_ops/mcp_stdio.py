@@ -15,6 +15,7 @@ from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
 from .github_issues import IssueRejected
 from .observation import observe
+from .nonblocking import submit as issue_submit
 
 MAX_MESSAGE = 65536
 REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
@@ -26,12 +27,16 @@ TOOLS = (
     {"name": "preview", "description": "Preview the trusted issue prompt; does not execute.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"}},
                      "required": ["ref"], "additionalProperties": False}},
+    {"name": "submit", "description": "Request one trusted issue with frozen UTC identity; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "at": {"type": "string"}}, "required": ["ref", "at"],
+                     "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
     {"name": "observe", "description": "Observe an existing frozen issue invocation.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}},
 )
-TOOLS = tuple({**tool, "annotations": {"readOnlyHint": True}} for tool in TOOLS)
+TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] != "submit"}} for tool in TOOLS)
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
@@ -54,6 +59,11 @@ def call_tool(name, args):
         return {"admission": admission_status()}
     if name == "preview":
         return issue_preview(args["ref"], allowed_repositories=_repositories())
+    if name == "submit":
+        if type(args["at"]) is not str:
+            raise ValueError("invalid_timestamp")
+        return issue_submit(args["ref"], args["at"], allowed_repositories=_repositories(),
+                            source="remote-api", trigger="mcp-submit")
     if name == "observe":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
