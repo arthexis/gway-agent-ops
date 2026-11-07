@@ -1,4 +1,4 @@
-"""Read-only MCP provider contract regression tests."""
+"""MCP provider contract regression tests with scoped write tool."""
 import unittest
 import json
 from unittest.mock import patch
@@ -7,14 +7,14 @@ from gway_agent_ops import mcp_stdio
 
 
 class McpStdioTests(unittest.TestCase):
-    def test_catalog_has_no_mutations(self):
+    def test_catalog_classifies_mutation(self):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
-        self.assertEqual(names, {"issues", "status", "preview", "observe"})
-        self.assertTrue(all(tool["annotations"]["readOnlyHint"]
+        self.assertEqual(names, {"issues", "status", "preview", "observe", "submit"})
+        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] != "submit")
                             for tool in response["result"]["tools"]))
 
-    def test_submit_cannot_be_called(self):
+    def test_submit_missing_arguments_cannot_be_called(self):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 2,
                                    "method": "tools/call",
                                    "params": {"name": "submit", "arguments": {}}})
