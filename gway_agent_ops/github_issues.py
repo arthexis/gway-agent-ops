@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import subprocess
 
 from .cli import parse_issue_ref
@@ -17,15 +18,27 @@ class IssueRejected(ValueError):
         self.code = code
 
 
-TARGET_LABEL = "gway-001"
+def _hostname() -> str:
+    return socket.gethostname().split(".", 1)[0]
+
+
+def target_label() -> str:
+    """Bind issue routing to the actual node; no caller-supplied override."""
+    node = _hostname()
+    if not re.fullmatch(r"gway-[0-9]{3}", node):
+        raise IssueRejected("node_identity_unavailable")
+    return node
 
 
 def require_target_label(issue: dict) -> None:
     labels = issue.get("labels")
     if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
         raise IssueRejected("invalid_issue_labels")
-    if TARGET_LABEL not in labels:
+    target = target_label()
+    if target not in labels:
         raise IssueRejected("target_label_missing")
+    if len({label for label in labels if re.fullmatch(r"gway-[0-9]{3}", label)}) != 1:
+        raise IssueRejected("target_label_ambiguous")
 
 
 def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...],

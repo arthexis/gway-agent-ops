@@ -22,10 +22,13 @@ Private state remains outside the immutable release directory.
 `gway-remote` invokes this canonical script, not a separate Agent Ops
 installer. Do not invoke the wrapper as root. **Pruning remains disabled.**
 
-## GWAY-001 agent issue routing
+## Per-node agent issue routing
 
-Before submitting a field-agent task, add the exact GitHub label `gway-001`.
-This routing marker is required for GWAY-001, but does **not** authorize execution.
+Before submitting a field-agent task, add the exact GitHub label for the target
+node, such as `gway-001` or `gway-004`. The required label is derived from the
+node hostname and an unrecognized hostname fails closed. An issue must have
+exactly one GWAY node label; multiple node labels are rejected. This routing marker
+does **not** authorize execution.
 Trusted author, open issue, explicitly allowed repository, operator action and
 single-slot admission remain mandatory. Agent Ops checks labels with fresh GitHub
 metadata at submission and again at execution, never relying on Android's cache.

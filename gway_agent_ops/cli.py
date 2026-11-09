@@ -215,9 +215,10 @@ def main(argv=None):
             result = envelope("submit", "ok", data=data)
             code = 0
         except IssueRejected as exc:
-            reason = exc.code if exc.code in ("target_label_missing", "invalid_issue_labels") else "submission_unavailable"
-            message = ("Add the exact gway-001 label before sending"
-                       if reason == "target_label_missing" else "Issue label metadata unavailable"
+            reason = exc.code if exc.code in ("target_label_missing", "target_label_ambiguous", "invalid_issue_labels") else "submission_unavailable"
+            message = ("Add the exact target node label before sending"
+                       if reason == "target_label_missing" else "Issue has multiple target node labels"
+                       if reason == "target_label_ambiguous" else "Issue label metadata unavailable"
                        if reason == "invalid_issue_labels" else "Unable to request invocation")
             result = envelope("submit", "error", error={"code": reason, "message": message})
             code = 1

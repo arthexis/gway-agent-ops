@@ -105,3 +105,16 @@ class IssueProjectionTests(unittest.TestCase):
         with self.assertRaises(IssueRejected):
             list_issues(allowed_repositories=(), state_dir=self.state,
                         runner=self.runner())
+
+
+def test_eligibility_tracks_actual_node(monkeypatch, tmp_path):
+    from gway_agent_ops import github_issues
+    monkeypatch.setattr(github_issues, "_hostname", lambda: "gway-004")
+    items = [
+        {"number": 1, "state": "open", "user": {"login": "arthexis"}, "title": "One", "comments": 0, "labels": [{"name": "gway-001"}]},
+        {"number": 2, "state": "open", "user": {"login": "arthexis"}, "title": "Four", "comments": 0, "labels": [{"name": "gway-004"}]},
+    ]
+    def runner(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, json.dumps(items), "")
+    rows = list_issues(allowed_repositories=("arthexis/example",), state_dir=tmp_path, runner=runner)
+    assert [(row["number"], row["eligible"]) for row in rows] == [(1, False), (2, True)]

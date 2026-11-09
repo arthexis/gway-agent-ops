@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .contracts import issue_row
 from .dispatch import DEFAULT_STATE
-from .github_issues import IssueRejected
+from .github_issues import IssueRejected, require_target_label
 
 
 def _history(state_dir: Path) -> dict:
@@ -95,13 +95,19 @@ def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None
                             not isinstance(label.get("name"), str) for label in labels):
                         raise IssueRejected("invalid_issue_labels")
                     names = [label["name"] for label in labels]
-                    eligible = "gway-001" in names
+                    try:
+                        require_target_label({"labels": names})
+                        eligible, reason = True, None
+                    except IssueRejected as exc:
+                        if exc.code not in {"target_label_missing", "target_label_ambiguous"}:
+                            raise
+                        eligible, reason = False, exc.code
                     rows.append(issue_row(repository=repository, number=number,
                                           title=item["title"], state=state,
                                           comments=count,
                                           sent_at=accepted["at"] if accepted else None,
                                           labels=names, eligible=eligible,
-                                          ineligible_reason=None if eligible else "target_label_missing"))
+                                          ineligible_reason=reason))
         except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
             if isinstance(exc, IssueRejected):
                 raise

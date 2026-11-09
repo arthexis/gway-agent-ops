@@ -1,3 +1,4 @@
+import pytest
 """A3.1 issue lookup must reject untrusted content before dispatch."""
 import json
 import subprocess
@@ -75,3 +76,25 @@ class GithubIssueTests(unittest.TestCase):
     def test_api_failure(self):
         with self.assertRaisesRegex(IssueRejected, "github_unavailable"):
             resolve(f"{REPO}#19", allowed_repositories=(REPO,), runner=runner({}, 1))
+
+
+def test_target_label_is_bound_to_local_node(monkeypatch):
+    from gway_agent_ops import github_issues
+    monkeypatch.setattr(github_issues, "_hostname", lambda: "gway-004")
+    github_issues.require_target_label({"labels": ["gway-004"]})
+    with pytest.raises(github_issues.IssueRejected, match="target_label_missing"):
+        github_issues.require_target_label({"labels": ["gway-001"]})
+
+
+def test_unknown_node_fails_closed(monkeypatch):
+    from gway_agent_ops import github_issues
+    monkeypatch.setattr(github_issues, "_hostname", lambda: "build-runner")
+    with pytest.raises(github_issues.IssueRejected, match="node_identity_unavailable"):
+        github_issues.require_target_label({"labels": ["gway-001", "gway-004"]})
+
+
+def test_multiple_node_labels_are_rejected(monkeypatch):
+    from gway_agent_ops import github_issues
+    monkeypatch.setattr(github_issues, "_hostname", lambda: "gway-004")
+    with pytest.raises(github_issues.IssueRejected, match="target_label_ambiguous"):
+        github_issues.require_target_label({"labels": ["gway-001", "gway-004"]})
