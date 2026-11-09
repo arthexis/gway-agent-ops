@@ -11,6 +11,8 @@ import re
 import sys
 
 from .admission_status import status as admission_status
+from .codex_budget import read_budgets
+from .contracts import status_data
 from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
 from .github_issues import IssueRejected
@@ -56,7 +58,10 @@ def call_tool(name, args):
     if name == "issues":
         return {"issues": list_issues(allowed_repositories=_repositories())}
     if name == "status":
-        return {"admission": admission_status()}
+        admission = admission_status()
+        data = status_data(active=not admission["available"], **read_budgets())
+        data["admission"] = admission
+        return data
     if name == "preview":
         return issue_preview(args["ref"], allowed_repositories=_repositories())
     if name == "submit":
