@@ -20,11 +20,29 @@ class McpStdioTests(unittest.TestCase):
                                    "params": {"name": "submit", "arguments": {}}})
         self.assertTrue(result["result"]["isError"])
 
-    def test_status_delegates_to_read_only_state(self):
-        with patch.object(mcp_stdio, "admission_status", return_value={"state": "idle"}):
+    def test_status_exposes_independent_budget_windows(self):
+        admission = {"state": "idle", "available": True, "active_issue": None, "active_at": None}
+        five_hour = {"remaining_percent": 42, "resets_at": "2026-11-09T08:00:00Z",
+                     "source": "codex_session_rate_limits", "observed_at": "2026-11-09T03:00:00Z",
+                     "available": True}
+        with patch.object(mcp_stdio, "admission_status", return_value=admission), \
+             patch.object(mcp_stdio, "read_budgets", return_value={"five_hour": five_hour, "weekly": None}):
             response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                          "params": {"name": "status", "arguments": {}}})
-        self.assertIn('"state": "idle"', response["result"]["content"][0]["text"])
+        data = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(data["admission"], admission)
+        self.assertFalse(data["active"])
+        self.assertEqual(data["budget"]["five_hour"], five_hour)
+        self.assertFalse(data["budget"]["weekly"]["available"])
+        self.assertIsNone(data["budget"]["weekly"]["remaining_percent"])
+
+    def test_status_with_unavailable_budgets(self):
+        with patch.object(mcp_stdio, "admission_status", return_value={"state": "busy", "available": False}), \
+             patch.object(mcp_stdio, "read_budgets", return_value={"five_hour": None, "weekly": None}):
+            data = mcp_stdio.call_tool("status", {})
+        self.assertTrue(data["active"])
+        self.assertIsNone(data["budget"]["five_hour"]["remaining_percent"])
+        self.assertIsNone(data["budget"]["weekly"]["remaining_percent"])
 
     def test_preview_requires_exact_ref(self):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
