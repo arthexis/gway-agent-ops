@@ -141,6 +141,9 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
+            # User systemd managers need not inherit shell PATH. Supply a fixed
+            # operator-owned CLI location plus system directories for gh/git.
+            "--setenv=PATH=" + str(Path.home() / ".local/bin") + ":/usr/local/bin:/usr/bin:/bin",
             "--setenv=GWAY_AGENT_ALLOWED_REPOS=" + ",".join(allowed_repositories),
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),

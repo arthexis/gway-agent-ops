@@ -117,3 +117,14 @@ class NonblockingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_transient_dispatch_gets_explicit_codex_path(tmp_path, monkeypatch):
+    from gway_agent_ops import nonblocking
+    monkeypatch.setattr(nonblocking, "resolve", lambda *a, **k: {"labels": ["gway-001"]})
+    monkeypatch.setattr(nonblocking, "_launch_prerequisites", lambda: "/usr/bin/agent")
+    runner = Mock(return_value=Mock(returncode=0))
+    result = submit(REF, AT, allowed_repositories=REPOS, state_dir=tmp_path, runner=runner)
+    assert result["state"] == "requested"
+    argv = runner.call_args.args[0]
+    assert "--setenv=PATH=" + str(Path.home() / ".local/bin") + ":/usr/local/bin:/usr/bin:/bin" in argv
