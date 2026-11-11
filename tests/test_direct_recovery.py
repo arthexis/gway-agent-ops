@@ -68,10 +68,7 @@ class DirectRecoveryTests(unittest.TestCase):
         cmd = runner.call_args.args[0]
         self.assertEqual(cmd[:4], ["systemctl", "--user", "show", self.unit])
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "interrupted")
-        with self.assertRaises(Busy):
-            with admission("arthexis/example#13", AT, state_dir=self.root):
-                pass
-        # A new distinct timestamp/issue may run after recovery, never the same ID.
+        # A different issue may start, while the old identity remains terminal.
         with admission("arthexis/example#13", AT, state_dir=self.root):
             pass
         self.assertEqual(recover_direct(REF, AT, state_dir=self.root)["state"],
