@@ -79,6 +79,54 @@ class OutboxWorkerTests(unittest.TestCase):
         self.assertEqual(flush(state_dir=self.root, runner=self.success),
                          {"sent": 0, "pending": 0})
 
+    def test_poison_prefix_does_not_starve_valid_report(self):
+        records = [self.enqueue(i) for i in range(1, 6)]
+        filenames = sorted((self.root / "outbox").glob("*.json"))
+        good = json.loads(filenames[-1].read_text())["issue"]
+        calls = []
+        def mixed_runner(argv, **kwargs):
+            calls.append(argv)
+            if good.split("#")[1] not in argv[2].split("/issues/")[-1].split("/")[0]:
+                return subprocess.CompletedProcess(argv, 1, "", "")
+            if "per_page=100" in " ".join(argv):
+                return subprocess.CompletedProcess(argv, 0, "[]", "")
+            return subprocess.CompletedProcess(argv, 0, "{}", "")
+        self.assertEqual(flush(state_dir=self.root, runner=mixed_runner, max_reports=4),
+                         {"sent": 0, "pending": 5})
+        self.assertEqual(flush(state_dir=self.root, runner=mixed_runner, max_reports=4),
+                         {"sent": 1, "pending": 4})
+        self.assertFalse((self.root / "outbox" / filenames[-1].name).exists())
+        self.assertTrue((self.root / "delivered" / filenames[-1].name).exists())
+        self.assertEqual(len(list((self.root / "outbox").glob("*.json"))), 4)
+        self.assertTrue((self.root / "report-cursor.json").exists())
+
+    def test_cursor_rejects_symlink_or_invalid_state(self):
+        self.enqueue(1)
+        cursor = self.root / "report-cursor.json"
+        cursor.symlink_to("outbox")
+        with self.assertRaisesRegex(ValueError, "unsafe report cursor"):
+            flush(state_dir=self.root, runner=self.success)
+        cursor.unlink()
+        cursor.write_text('{"last":"../../untrusted.json"}')
+        with self.assertRaisesRegex(ValueError, "invalid report cursor"):
+            flush(state_dir=self.root, runner=self.success)
+        self.assertEqual(self.calls, [])
+
+    def test_only_declarative_timer_invokes_outbox_command(self):
+        units = Path(__file__).resolve().parent.parent / "systemd"
+        service = (units / "gway-agent-report.service").read_text()
+        timer = (units / "gway-agent-report.timer").read_text()
+        self.assertIn("Type=oneshot", service)
+        commands = [line for line in service.splitlines()
+                    if line.startswith("ExecStart=")]
+        self.assertEqual(commands, ["ExecStart=%h/.local/bin/agent report --json"])
+        self.assertIn("TimeoutStartSec=120", service)
+        self.assertIn("OnCalendar=*:0/5", timer)
+        self.assertIn("Unit=gway-agent-report.service", timer)
+        self.assertNotIn("ExecStart=", timer)
+        self.assertNotIn("enable", service + timer)
+        self.assertNotIn("ExecStartPre=", service)
+
     def test_invalid_batch_or_unsafe_lock_fails_closed(self):
         self.enqueue(1)
         with self.assertRaises(ValueError):

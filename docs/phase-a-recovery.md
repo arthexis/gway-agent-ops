@@ -20,12 +20,15 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   invented.
 - agent observe now exposes findings_state independently from exit code,
   terminality, and delivery confirmation. Success with missing/invalid findings
-  is not verified completion.
+  is not verified completion. If the process crashed after persisting delivered/
+  but before unlinking outbox/, the durable delivered receipt has precedence.
 - agent report retries only durable GitHub comments using the existing marker
   for deduplication. It never reruns Codex. Its per-user report.lock
-  serializes the GitHub marker-check-and-post phase. A tick processes at
-  most four reports within an 80-second soft deadline, with each GitHub API
-  call bounded by its remaining time. Failed and deferred items remain queued.
+  serializes the GitHub marker-check-and-post phase. A durable report-cursor
+  advances even after a failed attempt, so poisoned early entries cannot
+  starve later reports. A tick processes at most four reports within an
+  80-second soft deadline, with each GitHub API call bounded by its remaining
+  time. Failed and deferred items remain queued.
 - An opt-in user systemd oneshot + calendar timer is provided in
   systemd/gway-agent-report.{service,timer}; no installation, enablement,
   or service restart is performed by this PR. The 120-second service timeout

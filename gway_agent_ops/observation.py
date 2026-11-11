@@ -53,7 +53,9 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
     if not accepted:
         return _pending_request(root, ref, at)
     key = _key(ref, at) + ".json"
-    for folder in ("outbox", "delivered"):
+    # A crash may leave both records after writing the delivered receipt but
+    # before unlinking the outbox entry. Durable delivery evidence wins.
+    for folder in ("delivered", "outbox"):
         path = root / folder / key
         if path.is_symlink():
             raise ValueError("unsafe report path")

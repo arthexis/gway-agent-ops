@@ -208,8 +208,29 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
         pending = 0
         delivered = root / "delivered"
         _private_directory(delivered)
-        for index, path in enumerate(sorted(outbox.glob("*.json"))):
-            if index >= max_reports or clock() >= deadline or path.is_symlink():
+        # A failed or malformed report must not monopolize the first batch
+        # forever. Persist the last *attempted* filename under report.lock;
+        # restart resumes at the next filename, with wrap-around.
+        cursor = root / "report-cursor.json"
+        if cursor.is_symlink():
+            raise ValueError("unsafe report cursor")
+        after = ""
+        if cursor.exists():
+            previous = json.loads(cursor.read_text(encoding="utf-8"))
+            after = previous.get("last") if type(previous) is dict else None
+            if type(after) is not str or not re.fullmatch(r"[0-9a-f]{64}\\.json", after):
+                raise ValueError("invalid report cursor")
+        files = sorted(outbox.glob("*.json"))
+        start = next((i for i, path in enumerate(files) if path.name > after), 0)
+        scheduled = files[start:] + files[:start]
+        for index, path in enumerate(scheduled):
+            if index >= max_reports or clock() >= deadline:
+                pending += 1
+                continue
+            # Cursor first: a crash cannot starve later entries. Retry of a
+            # previously posted comment is still safe via the GitHub marker.
+            _write(cursor, {"last": path.name})
+            if path.is_symlink():
                 pending += 1
                 continue
             try:

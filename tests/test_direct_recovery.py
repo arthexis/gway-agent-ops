@@ -120,6 +120,32 @@ class DirectRecoveryTests(unittest.TestCase):
                     recover_direct(REF, AT, state_dir=self.root, runner=runner)
                 self.assertFalse((self.root / "outbox").exists())
 
+    def test_restarted_invocation_or_reused_pid_cannot_recover(self):
+        self.accepted()
+        # PID 0 is not enough: a restarted unit has a new InvocationID and
+        # must not be confused with the original killed CLI process.
+        for changes in (
+            {"InvocationID": "b" * 32},
+            {"TasksCurrent": "2", "MainPID": "0", "ControlPID": "0"},
+            {"TasksCurrent": "18446744073709551615"},
+            {"MainPID": "0", "ControlPID": "0", "ActiveState": "activating"},
+            {"ControlGroup": "/user.slice/restarted.service"},
+            {"KillMode": "mixed"},
+        ):
+            with self.subTest(changes=changes):
+                runner = self.evidence(**changes)
+                with self.assertRaises(ValueError):
+                    recover_direct(REF, AT, state_dir=self.root, runner=runner)
+                self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        self.assertFalse((self.root / "outbox").exists())
+
+    def test_legacy_unsupervised_record_cannot_use_pid_or_elapsed_time(self):
+        self.accepted(supervised=False)
+        with self.assertRaisesRegex(ValueError, "direct_supervision_missing"):
+            recover_direct(REF, AT, state_dir=self.root, runner=self.evidence(
+                TasksCurrent="0", MainPID="0", ActiveState="inactive"))
+        self.assertFalse((self.root / "outbox").exists())
+
     def test_recovery_keeps_github_pending_and_does_not_dispatch(self):
         self.accepted()
         recover_direct(REF, AT, state_dir=self.root, runner=self.evidence())
