@@ -89,14 +89,39 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(flush(state_dir=self.root, runner=runner), {"sent": 1, "pending": 0})
         self.assertEqual(len(calls), 2)
 
-    def test_recover_only_old_dispatches_and_not_delivered(self):
+    def test_recover_never_auto_reconciles_accepted_orphans(self):
+        from gway_agent_ops.admission_status import status
+        from gway_agent_ops.dispatch import Busy, admission
+        from gway_agent_ops.observation import observe
         self.root.mkdir(mode=0o700)
         ledger = self.root / "accepted.jsonl"
         ledger.write_text(json.dumps({"issue": self.issue, "at": self.at}) + "\n")
         ledger.chmod(0o600)
-        self.assertEqual(recover(state_dir=self.root, active=(self.issue, self.at)), 0)
-        self.assertEqual(recover(state_dir=self.root), 1)
-        self.assertEqual(recover(state_dir=self.root), 0)
+        for active in ((self.issue, self.at), None, None):
+            self.assertEqual(recover(state_dir=self.root, active=active), 0)
+        self.assertFalse((self.root / "outbox").exists())
+        self.assertFalse((self.root / "delivered").exists())
+        self.assertEqual(observe(self.issue, self.at, state_dir=self.root)["state"], "accepted")
+        self.assertFalse(status(state_dir=self.root)["available"])
+        with self.assertRaises(Busy):
+            with admission("arthexis/other#20", self.at, state_dir=self.root):
+                pass
+
+    def test_recover_rejects_corrupt_journal_and_symlink_without_writes(self):
+        self.root.mkdir(mode=0o700)
+        ledger = self.root / "accepted.jsonl"
+        for item in ("[]", "null", '{"issue": 12, "at": "x"}',
+                     '{"issue": "invalid", "at": "x"}', '{"issue":'):
+            with self.subTest(item=item):
+                ledger.write_text(item + "\n")
+                with self.assertRaises(ValueError):
+                    recover(state_dir=self.root)
+                self.assertFalse((self.root / "outbox").exists())
+        ledger.unlink()
+        ledger.symlink_to("missing-ledger")
+        with self.assertRaisesRegex(ValueError, "unsafe dispatch journal"):
+            recover(state_dir=self.root)
+        self.assertFalse((self.root / "outbox").exists())
 
     def test_other_issue_same_timestamp_is_distinct(self):
         a = enqueue(self.issue, self.at, state_dir=self.root)

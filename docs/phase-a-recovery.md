@@ -31,7 +31,10 @@ the existing service, Ansible or GWay Remote mechanism.
   completion of any independent administrative effects.
 - On subprocess timeout, ambiguous \`OSError\`, crash or failed report fsync,
   accepted remains unresolved, blocks the next issue and never fabricates a
-  finished report. The operator must reconcile it explicitly.
+  finished report. The operator must reconcile it explicitly. The legacy
+  `reporting.recover()` entrypoint now validates the accepted journal only:
+  it never synthesizes `interrupted` without an explicit operator action.
+  Corrupt or symlinked journals fail closed.
 - Outbox delivery has an existing marker-based GitHub deduplication protocol,
   serialized report lock, durable receipt and bounded retries. It does not
   execute Codex. The opt-in outbox-only systemd service/timer included in

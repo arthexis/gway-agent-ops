@@ -262,25 +262,25 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
         os.close(fd)
 
 def recover(*, state_dir: Path | None = None, active: tuple[str, str] | None = None) -> int:
-    """Reconcile accepted invocations not yet given a reporting record.
+    """Validate accepted journal without automatically reporting old executions.
 
-    Must be called while the dispatch execution lock is held, so an active
-    process cannot be misidentified as crashed.
+    This compatibility entrypoint remains under the execution lock for callers.
+    Only a normal Codex return or explicit operator reconciliation can turn
+    an accepted identity terminal. Lost locks and process exit are not proof
+    that an uncertain old invocation should be reported as interrupted.
     """
     root = Path(state_dir or DEFAULT_STATE)
     ledger = root / "accepted.jsonl"
+    if ledger.is_symlink():
+        raise ValueError("unsafe dispatch journal")
     if not ledger.exists():
         return 0
-    outbox = root / "outbox"
-    _private_directory(outbox)
-    delivered = root / "delivered"
-    _private_directory(delivered)
-    created = 0
-    for line in ledger.read_text().splitlines():
-        accepted = json.loads(line)
-        path = outbox / (_key(accepted["issue"], accepted["at"]) + ".json")
-        if ((accepted["issue"], accepted["at"]) != active
-                and not path.exists() and not (delivered / path.name).exists()):
-            enqueue(accepted["issue"], accepted["at"], state_dir=root)
-            created += 1
-    return created
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if (type(record) is not dict or type(record.get("issue")) is not str
+                or type(record.get("at")) is not str):
+            raise ValueError("invalid acceptance journal")
+        _key(record["issue"], record["at"])
+    # Keep the active parameter for existing callers; it confers no authority
+    # to synthesize terminal reports for any accepted identity.
+    return 0
