@@ -23,6 +23,10 @@ class NonblockingTests(unittest.TestCase):
         self.gate = patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]})
         self.gate.start()
         self.addCleanup(self.gate.stop)
+        bus = patch("gway_agent_ops.nonblocking.systemd_user_environment",
+                    return_value={"XDG_RUNTIME_DIR": "/run/user/1000"})
+        bus.start()
+        self.addCleanup(bus.stop)
 
     def send(self, ref=REF, at=AT, *, exit_code=0):
         with patch("gway_agent_ops.nonblocking._launch_prerequisites",
@@ -93,6 +97,39 @@ class NonblockingTests(unittest.TestCase):
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "released")
         self.assertEqual(self.send()["state"], "already_requested")
         self.assertEqual(self.send("owner/repo#2")["state"], "requested")
+
+    def test_operator_release_uses_verified_same_user_bus(self):
+        self.send(exit_code=1)
+        runner = Mock(side_effect=[Mock(returncode=0, stdout=""),
+                                   Mock(returncode=3, stdout="inactive\n")])
+        self.assertEqual(release(REF, AT, state_dir=self.root,
+                                 runner=runner)["state"], "released")
+        for call in runner.call_args_list:
+            self.assertEqual(call.kwargs["env"]["XDG_RUNTIME_DIR"], "/run/user/1000")
+
+    def test_operator_release_without_bus_fails_closed(self):
+        self.send(exit_code=1)
+        runner = Mock()
+        with patch("gway_agent_ops.nonblocking.systemd_user_environment",
+                   side_effect=ValueError("agent_user_bus_unavailable")):
+            with self.assertRaisesRegex(ValueError, "agent_user_bus_unavailable"):
+                release(REF, AT, state_dir=self.root, runner=runner)
+        runner.assert_not_called()
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "launch_unconfirmed")
+        self.assertFalse((self.root / "released").exists())
+        self.assertFalse((self.root / "outbox").exists())
+
+    def test_release_rechecks_terminal_state_after_execution_lock(self):
+        self.send(exit_code=1)
+        runner = Mock()
+        with patch("gway_agent_ops.nonblocking.observe",
+                   side_effect=[{"state": "launch_unconfirmed"},
+                                {"state": "finished"}]):
+            result = release(REF, AT, state_dir=self.root, runner=runner)
+        self.assertEqual(result["state"], "already_terminal")
+        runner.assert_not_called()
+        self.assertFalse((self.root / "released").exists())
+        self.assertFalse((self.root / "outbox").exists())
 
     def test_real_prerequisite_validates_workspace_without_secrets(self):
         with tempfile.TemporaryDirectory() as temp:

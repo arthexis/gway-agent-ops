@@ -18,7 +18,7 @@ import stat
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
 from .observation import observe
-from .runtime import _same_user_runtime_dir
+from .runtime import _same_user_runtime_dir, systemd_user_environment
 
 
 _TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
@@ -220,6 +220,10 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 fcntl.flock(execution_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise ValueError("execution_active") from exc
+            # Codex may have persisted its terminal result while we waited
+            # for execution.lock. Do not stop or relabel a completed process.
+            if observe(ref, at, state_dir=root)["state"] in _TERMINAL:
+                return {"issue": ref, "at": at, "state": "already_terminal"}
             # Validate the acceptance journal while holding both locks.
             # Release is an explicit operator reconciliation of Codex, not
             # an assertion that external administrative jobs have ended.
@@ -236,10 +240,13 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                         raise ValueError("invalid acceptance journal")
                     if accepted["issue"] == ref and accepted["at"] == at:
                         was_accepted = True
+            # The same UID's existing systemd bus must be available before
+            # operator reconciliation changes any journal state.
+            user_env = systemd_user_environment()
             unit = "gway-agent-" + digest[:32] + ".service"
             # Stop first: a successful is-active check alone would race a pending start.
             stopped = runner(["systemctl", "--user", "stop", unit],
-                             capture_output=True, text=True, check=False, timeout=10)
+                             capture_output=True, text=True, check=False, timeout=10, env=user_env)
             missing_verified = False
             if stopped.returncode != 0:
                 # --collect may have garbage-collected the transient unit.
@@ -248,7 +255,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 metadata = runner(
                     ["systemctl", "--user", "show", unit,
                      "--property=LoadState", "--property=ActiveState"],
-                    capture_output=True, text=True, check=False, timeout=10)
+                    capture_output=True, text=True, check=False, timeout=10, env=user_env)
                 properties = dict(
                     line.split("=", 1) for line in metadata.stdout.splitlines()
                     if "=" in line)
@@ -258,7 +265,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                     raise ValueError("unit_stop_unconfirmed")
                 missing_verified = True
             checked = runner(["systemctl", "--user", "is-active", unit],
-                             capture_output=True, text=True, check=False, timeout=10)
+                             capture_output=True, text=True, check=False, timeout=10, env=user_env)
             state = checked.stdout.strip()
             if checked.returncode == 0:
                 raise ValueError("unit_inactive_unconfirmed")
@@ -270,7 +277,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                     metadata = runner(
                         ["systemctl", "--user", "show", unit,
                          "--property=LoadState", "--property=ActiveState"],
-                        capture_output=True, text=True, check=False, timeout=10)
+                        capture_output=True, text=True, check=False, timeout=10, env=user_env)
                     properties = dict(
                         line.split("=", 1) for line in metadata.stdout.splitlines()
                         if "=" in line)

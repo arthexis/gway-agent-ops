@@ -20,6 +20,10 @@ class ControllerHardeningTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        bus = patch("gway_agent_ops.nonblocking.systemd_user_environment",
+                    return_value={"XDG_RUNTIME_DIR": "/run/user/1000"})
+        bus.start()
+        self.addCleanup(bus.stop)
 
     def test_direct_accepted_without_terminal_blocks_restart_and_submit(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"

@@ -29,6 +29,10 @@ class PhaseARecoveryTests(unittest.TestCase):
                         return_value={"labels": ["gway-001"]})
         trusted.start()
         self.addCleanup(trusted.stop)
+        bus = patch("gway_agent_ops.nonblocking.systemd_user_environment",
+                    return_value={"XDG_RUNTIME_DIR": "/run/user/1000"})
+        bus.start()
+        self.addCleanup(bus.stop)
 
     def submit(self, *, ref=REF, runner=None):
         with patch("gway_agent_ops.nonblocking._launch_prerequisites",

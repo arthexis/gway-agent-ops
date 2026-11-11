@@ -16,6 +16,7 @@ import subprocess
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .observation import observe
+from .runtime import systemd_user_environment
 
 INVOCATION = re.compile(r"[0-9a-f]{32}\Z")
 TERMINAL = frozenset(("finished", "codex_failed", "interrupted", "released"))
@@ -76,9 +77,11 @@ def _systemd_inactive(supervisor, *, runner):
     props = ("LoadState", "ActiveState", "SubState", "InvocationID",
              "KillMode", "Restart", "TasksCurrent", "MainPID", "ControlPID",
              "ControlGroup")
+    user_env = systemd_user_environment()
     result = runner(["systemctl", "--user", "show", supervisor["unit"],
                      *("--property=" + key for key in props)],
-                    capture_output=True, text=True, check=False, timeout=10)
+                    capture_output=True, text=True, check=False, timeout=10,
+                    env=user_env)
     if result.returncode != 0 or not isinstance(result.stdout, str):
         raise ValueError("direct_supervisor_unavailable")
     parsed = {}

@@ -30,7 +30,13 @@ the existing service, Ansible or GWay Remote mechanism.
   `systemd-run --user` process: `agent submit` no longer fails preflight
   solely because a non-login executor omitted ambient XDG_RUNTIME_DIR.
   A missing or unsafe bus fails preflight before recording a new request;
-  existing at-most-once handling still governs ambiguous launches.
+  existing at-most-once handling still governs ambiguous launches. Explicit
+  operator `release` and `recover-direct` use that same verified user bus
+  rather than an ambient login-session variable. Without it, they refuse
+  reconciliation before any systemctl command or terminal report. Under both
+  locks, `release` also rechecks for a just-committed terminal Codex result,
+  so it cannot stop an already completed invocation or relabel it. None of
+  this attests that separate administrative work has ended.
 - A request is fsynced under the existing locks before launching Codex. The
   frozen identity is \`(issue, normalized UTC timestamp)\`; a duplicate identity
   is never run twice, including after a restart.

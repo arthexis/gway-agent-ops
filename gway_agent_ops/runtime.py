@@ -29,6 +29,21 @@ def _same_user_runtime_dir(base: Path = Path("/run/user")) -> str | None:
     return str(path)
 
 
+def systemd_user_environment() -> dict[str, str]:
+    """Resolve the existing same-user systemd bus for explicit recovery.
+
+    Non-login MCP/SSH sessions may omit XDG_RUNTIME_DIR. Do not accept a
+    caller-supplied bus address or reconstruct the location without validation.
+    """
+    runtime_dir = _same_user_runtime_dir()
+    if runtime_dir is None:
+        raise ValueError("agent_user_bus_unavailable")
+    environment = dict(os.environ)
+    environment.pop("DBUS_SESSION_BUS_ADDRESS", None)
+    environment["XDG_RUNTIME_DIR"] = runtime_dir
+    return environment
+
+
 def _check_directory(path: Path, *, create: bool = False) -> None:
     if create:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)

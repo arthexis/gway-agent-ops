@@ -31,6 +31,10 @@ class DirectRecoveryTests(unittest.TestCase):
         self.supervisor = direct_supervision(
             REF, self.at, invocation=ID, cgroup_text="0::" + self.cgroup)
         self.assertIsNotNone(self.supervisor)
+        bus = patch("gway_agent_ops.direct_recovery.systemd_user_environment",
+                    return_value={"XDG_RUNTIME_DIR": "/run/user/1000"})
+        bus.start()
+        self.addCleanup(bus.stop)
 
     def accepted(self, *, supervised=True):
         with patch("gway_agent_ops.direct_recovery.direct_supervision",
@@ -82,6 +86,28 @@ class DirectRecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(OSError, "synthetic fsync failure"):
                 recover_direct(REF, AT, state_dir=self.root, runner=self.evidence())
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        with self.assertRaises(Busy):
+            with admission("arthexis/example#13", AT, state_dir=self.root):
+                pass
+
+    def test_operator_recovery_uses_verified_same_user_bus(self):
+        self.accepted()
+        runner = self.evidence()
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=runner)["state"], "interrupted")
+        self.assertEqual(runner.call_args.kwargs["env"]["XDG_RUNTIME_DIR"],
+                         "/run/user/1000")
+
+    def test_recover_direct_without_bus_fails_closed(self):
+        self.accepted()
+        runner = Mock()
+        with patch("gway_agent_ops.direct_recovery.systemd_user_environment",
+                   side_effect=ValueError("agent_user_bus_unavailable")):
+            with self.assertRaisesRegex(ValueError, "agent_user_bus_unavailable"):
+                recover_direct(REF, AT, state_dir=self.root, runner=runner)
+        runner.assert_not_called()
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        self.assertFalse((self.root / "outbox").exists())
         with self.assertRaises(Busy):
             with admission("arthexis/example#13", AT, state_dir=self.root):
                 pass

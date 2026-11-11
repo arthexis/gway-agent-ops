@@ -7,7 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_agent_ops.runtime import runtime_context, _same_user_runtime_dir
+from gway_agent_ops.runtime import (
+    runtime_context, _same_user_runtime_dir, systemd_user_environment,
+)
 
 
 class RuntimeTests(unittest.TestCase):
@@ -85,6 +87,19 @@ class RuntimeTests(unittest.TestCase):
             context = runtime_context(root=self.root, env={
                 "XDG_RUNTIME_DIR": "/tmp/forged", "PATH": "/usr/bin"})
         self.assertNotIn("XDG_RUNTIME_DIR", context["environment"])
+
+    def test_systemd_environment_uses_only_verified_same_user_bus(self):
+        with patch("gway_agent_ops.runtime._same_user_runtime_dir",
+                   return_value="/run/user/1000"), patch.dict(os.environ, {
+                   "XDG_RUNTIME_DIR": "/tmp/forged",
+                   "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/forged/bus"}):
+            env = systemd_user_environment()
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+        self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
+        with patch("gway_agent_ops.runtime._same_user_runtime_dir",
+                   return_value=None):
+            with self.assertRaisesRegex(ValueError, "agent_user_bus_unavailable"):
+                systemd_user_environment()
 
     def test_explicit_seed_reference_reuses_private_home_without_copy(self):
         import json
