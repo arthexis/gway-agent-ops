@@ -125,10 +125,11 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         from .github_issues import require_target_label
         require_target_label(resolve(ref, allowed_repositories=allowed_repositories))
         executable = _launch_prerequisites()
+        request_record = {"issue": ref, "at": at, "state": "requested",
+                          "source": source, "trigger": trigger}
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"issue": ref, "at": at, "state": "requested",
-                       "source": source, "trigger": trigger}, handle)
+            json.dump(request_record, handle)
             handle.flush()
             os.fsync(handle.fileno())
         directory = os.open(requests, os.O_RDONLY)
@@ -151,10 +152,14 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         try:
             result = runner(command, capture_output=True, text=True,
                             check=False, timeout=5)
+            if result.returncode == 0:
+                return {"issue": ref, "at": at, "state": "requested"}
         except (OSError, subprocess.TimeoutExpired):
-            return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
-        return {"issue": ref, "at": at,
-                "state": "requested" if result.returncode == 0 else "launch_unconfirmed"}
+            pass
+        # Persist the uncertain outcome; never retry the reserved identity.
+        from .reporting import _write
+        _write(marker, {**request_record, "state": "launch_unconfirmed"})
+        return {"issue": ref, "at": at, "state": "launch_unconfirmed"}
     finally:
         os.close(descriptor)
 
@@ -222,6 +227,20 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                              capture_output=True, text=True, check=False, timeout=10)
             if checked.returncode == 0 or checked.stdout.strip() not in ("inactive", "failed", "unknown"):
                 raise ValueError("unit_inactive_unconfirmed")
+            # With the worker stopped and the execution lock free, a previously
+            # accepted invocation without a result must retain an interruption
+            # report before its slot is released. Do not rerun Codex.
+            ledger = root / "accepted.jsonl"
+            if ledger.is_symlink():
+                raise ValueError("unsafe dispatch journal")
+            if ledger.exists():
+                was_accepted = any(
+                    row.get("issue") == ref and row.get("at") == at
+                    for row in (json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines())
+                )
+                if was_accepted:
+                    from .reporting import enqueue
+                    enqueue(ref, at, state_dir=root, status="interrupted")
             released = root / "released"
             _private_directory(released)
             path = released / (digest + ".json")
