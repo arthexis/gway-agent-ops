@@ -37,6 +37,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                             or report.get("delivery_attempted", False)),
                             "delivery_confirmed": folder == "delivered",
                             "execution_terminal": True,
+                            "admin_work_state": report.get("admin_work_state", "not_attested"),
                             "findings_state": report.get("findings_state")}
                 break
         return {"issue": ref, "at": at, "state": "released",
@@ -72,6 +73,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                     return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
                         "reported": True, "execution_terminal": True,
+                        "admin_work_state": report.get("admin_work_state", "not_attested"),
                         "receipt_state": report.get("receipt_state", "not_requested"),
                         "receipt_retained": report.get("receipt_state") == "receipt_valid",
                         "findings_state": report.get("findings_state"),
@@ -81,6 +83,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             report = json.loads(path.read_text(encoding="utf-8"))
             return {"issue": ref, "at": at, "state": report["status"],
                     "execution_terminal": True,
+                    "admin_work_state": report.get("admin_work_state", "not_attested"),
                     "receipt_state": report.get("receipt_state", "not_requested"),
                     "receipt_retained": report.get("receipt_state") == "receipt_valid",
                     "findings_state": report.get("findings_state"),

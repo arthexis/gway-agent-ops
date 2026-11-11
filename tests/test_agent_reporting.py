@@ -26,6 +26,7 @@ class ReportingTests(unittest.TestCase):
                          findings=findings, findings_state="validated")
         self.assertEqual(record["findings"], findings)
         self.assertEqual(record["findings_state"], "validated")
+        self.assertEqual(record["admin_work_state"], "not_attested")
         calls = []
         def runner(argv, **kwargs):
             calls.append(argv)
@@ -36,7 +37,10 @@ class ReportingTests(unittest.TestCase):
                          {"sent": 1, "pending": 0})
         self.assertTrue(any("The repository provides" in str(argv) for argv in calls))
         delivered = next((self.root / "delivered").glob("*.json"))
-        self.assertEqual(json.loads(delivered.read_text())["findings_state"], "validated")
+        receipt = json.loads(delivered.read_text())
+        self.assertEqual(receipt["findings_state"], "validated")
+        self.assertEqual(receipt["admin_work_state"], "not_attested")
+        self.assertTrue(any("External services" in str(argv) for argv in calls))
 
     def test_missing_findings_are_explicitly_reported(self):
         record = enqueue(self.issue, self.at, state_dir=self.root,

@@ -58,7 +58,9 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
         return json.loads(path.read_text())
     if status not in ("interrupted", "finished", "codex_failed"):
         raise ValueError("invalid reporting status")
+    # Terminal applies to Codex only, not independent host effects.
     record = {"issue": issue, "at": at, "status": status, "exit_code": exit_code,
+              "admin_work_state": "not_attested",
               "marker": "agent-dispatch:" + identity}
     if audit:
         from .audit_receipt import validate
@@ -166,6 +168,12 @@ def deliver(record: dict, *, runner=subprocess.run, deadline=None,
             message = (f"Agent read-only audit {record['at']}: {state}; "
                        f"execution={record['status']}. No validated PASS evidence."
                        f"\n<!-- {record['marker']} -->")
+    if record.get("admin_work_state") == "not_attested":
+        marker_line = f"\n<!-- {record['marker']} -->"
+        message = message.replace(
+            marker_line,
+            "\nExternal services, deployments and administrative jobs are "
+            "not attested by this Codex process result." + marker_line)
     bounded_api([endpoint, "-f", f"body={message}"])
 
 
@@ -243,7 +251,8 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
                              "exit_code": record.get("exit_code"),
                              "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
                              "receipt": record.get("receipt"),
-                             "findings_state": record.get("findings_state")})
+                             "findings_state": record.get("findings_state"),
+                             "admin_work_state": record.get("admin_work_state", "not_attested")})
                 path.unlink()
                 sent += 1
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):

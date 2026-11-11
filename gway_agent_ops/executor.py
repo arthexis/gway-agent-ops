@@ -4,6 +4,7 @@ A3.4 will supply GitHub result reporting and durable failure outbox.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -11,7 +12,8 @@ from pathlib import Path
 from .dispatch import Busy, Duplicate, admission, timestamp
 from .github_issues import IssueRejected, resolve, require_target_label
 from .runtime import runtime_context
-from .reporting import recover
+from .reporting import enqueue, recover
+from .findings import parse_findings
 
 
 class ExecutionError(RuntimeError):
@@ -65,7 +67,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
             allowed_repositories: tuple[str, ...], workspace_root: Path,
             timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
             state_dir: Path | None = None, runtime=runtime_context) -> dict:
-    """Execute under one admission lock; never self-certify descendant exit."""
+    """Report Codex process outcome without attesting administrative side effects."""
     if not 1 <= timeout_seconds <= 7200:
         raise ValueError("timeout must be 1..7200 seconds")
     if not allowed_repositories:
@@ -87,6 +89,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         raise ExecutionError("agent_config_unavailable")
     at = timestamp(at)
     prompt = build_issue_prompt(issue)
+    digest = hashlib.sha256((issue["title"] + "\n" + issue["body"]).encode()).hexdigest()
     with admission(key, at, state_dir=state_dir, comment_baseline=issue['comments']) as accepted:
         # The lock is held while reconciling old crashes. Current dispatch
         # must never be interpreted as interrupted while still running.
@@ -108,11 +111,19 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
             # Spawn failure is not a durable proof of absent descendants:
             # never turn ambiguous execution into a terminal delivery record.
             raise ExecutionError("codex_unavailable") from exc
-        # Whether returncode is zero or nonzero, a synchronous process only
-        # knows its direct child exited; detached descendants may survive.
-        # This worker cannot independently attest its OWN cgroup and all
-        # children have terminated. A trusted external supervisor must do
-        # so AFTER this worker's execution scope ends, with a pre-established
-        # non-escapable kernel boundary. No such witness exists in Phase A.
-        # Never create a terminal outbox entry that could reopen admission.
-        raise ExecutionError("codex_containment_unverified")
+        # Normal exit proves the Codex process returned, not that services,
+        # deployments or independently managed administrative jobs ended.
+        # fsync the report before the admission lock is released. A failed
+        # report write keeps the accepted journal unresolved.
+        findings = parse_findings(process.stdout) if process.returncode == 0 else None
+        enqueue(key, accepted["at"], state_dir=state_dir,
+                status="finished" if process.returncode == 0 else "codex_failed",
+                exit_code=process.returncode, findings=findings,
+                findings_state=("validated" if findings else "missing_or_invalid")
+                if process.returncode == 0 else None)
+        return {"issue": key, "at": accepted["at"], "url": issue["url"],
+                "issue_revision": "sha256:" + digest,
+                "comment_baseline": issue["comments"],
+                "exit_code": process.returncode,
+                "admin_work_state": "not_attested",
+                "status": "finished" if process.returncode == 0 else "codex_failed"}

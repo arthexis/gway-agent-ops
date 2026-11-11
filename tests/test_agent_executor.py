@@ -45,42 +45,60 @@ class ExecutionTests(unittest.TestCase):
                          runtime=runtime, **kwargs)
         return result, seen
 
-    def test_normal_zero_return_without_external_witness_never_unlocks(self):
-        seen = []
-        with self.assertRaisesRegex(ExecutionError, "codex_containment_unverified"):
-            self.call(seen=seen)
+    def test_normal_zero_is_codex_finished_not_host_complete(self):
+        result, seen = self.call()
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(result["admin_work_state"], "not_attested")
+        self.assertEqual(result["comment_baseline"], 6)
+        self.assertTrue(result["issue_revision"].startswith("sha256:"))
         argv, options = seen[0]
         self.assertEqual(argv, ["codex", "exec", "--sandbox", "workspace-write", "-"])
         self.assertEqual(options["cwd"], self.checkout)
         self.assertIn("Body", options["input"])
-        self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
-                                 state_dir=self.state)["state"], "accepted")
-        self.assertFalse(status(state_dir=self.state)["available"])
-        self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
-        self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
+        self.assertNotIn("TOKEN-NEVER-PRINT", str(result))
+        observed = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                           state_dir=self.state)
+        self.assertEqual(observed["state"], "finished")
+        self.assertTrue(observed["execution_terminal"])
+        self.assertEqual(observed["admin_work_state"], "not_attested")
+        self.assertTrue(status(state_dir=self.state)["available"])
         with self.assertRaises(Duplicate):
             self.call()
-        with self.assertRaises(Busy):
-            with admission("arthexis/example#27", "2026-10-13T01:00:00Z",
-                           state_dir=self.state):
-                pass
+        with admission("arthexis/example#27", "2026-10-13T01:00:00Z",
+                       state_dir=self.state):
+            pass
 
-    def test_nonzero_return_without_external_witness_never_unlocks(self):
+    def test_normal_nonzero_is_codex_failed_not_host_complete(self):
         seen = []
         def failed_runner(argv, **kwargs):
             seen.append(argv)
-            return subprocess.CompletedProcess(argv, 37, "", "synthetic failure")
-        with self.assertRaisesRegex(ExecutionError, "codex_containment_unverified"):
+            return subprocess.CompletedProcess(argv, 37, "", "synthetic")
+        result, _ = self.call(runner_override=failed_runner)
+        self.assertEqual(result["status"], "codex_failed")
+        self.assertEqual(result["exit_code"], 37)
+        self.assertEqual(result["admin_work_state"], "not_attested")
+        self.assertEqual(len(seen), 1)
+        observed = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                           state_dir=self.state)
+        self.assertEqual(observed["state"], "codex_failed")
+        self.assertEqual(observed["admin_work_state"], "not_attested")
+        self.assertTrue(status(state_dir=self.state)["available"])
+        with self.assertRaises(Duplicate):
             self.call(runner_override=failed_runner)
         self.assertEqual(len(seen), 1)
+
+    def test_terminal_outbox_failure_preserves_accepted_reservation(self):
+        from unittest.mock import patch
+        with patch("gway_agent_ops.executor.enqueue",
+                   side_effect=OSError("synthetic journal failure")):
+            with self.assertRaisesRegex(OSError, "synthetic journal failure"):
+                self.call()
         self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
                                  state_dir=self.state)["state"], "accepted")
         self.assertFalse(status(state_dir=self.state)["available"])
         self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
-        self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
         with self.assertRaises(Duplicate):
-            self.call(runner_override=failed_runner)
-        self.assertEqual(len(seen), 1)
+            self.call()
 
     def test_timed_out_codex_cannot_fabricate_terminal_or_free_slot(self):
         def timeout_runner(args, **kwargs):

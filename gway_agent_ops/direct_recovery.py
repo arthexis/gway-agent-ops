@@ -109,7 +109,7 @@ def _systemd_inactive(supervisor, *, runner):
 
 def recover_direct(ref: str, at: str, *, state_dir: Path | None = None,
                    runner=subprocess.run) -> dict:
-    """Inspect direct-CLI worker evidence; refuse release without containment proof."""
+    """Explicitly reconcile stopped direct Codex, not external admin work."""
     if type(ref) is not str or not ISSUE.fullmatch(ref) or type(at) is not str:
         raise ValueError("invalid_issue_identity")
     at = timestamp(at)
@@ -162,16 +162,12 @@ def recover_direct(ref: str, at: str, *, state_dir: Path | None = None,
             if validated != supervisor or supervisor["unit"] != direct_unit(ref, at):
                 raise ValueError("invalid_direct_supervisor")
             _systemd_inactive(supervisor, runner=runner)
-            # A matching invocation and an empty original cgroup do NOT prove
-            # the entire execution family stopped. A same-user process can
-            # escape to a different systemd scope via the user manager and
-            # outlive the original unit. The accepted journal has no durable
-            # evidence of all escaped children and PID absence/reuse cannot
-            # reconstruct that lineage. Do not enqueue an "interrupted"
-            # terminal report or reopen admission based only on unit evidence.
-            # A separately proven process-containment boundary is required;
-            # this Draft deliberately does not implement or authorize one.
-            raise ValueError("direct_containment_unverified")
+            # Explicit operator reconciliation of an inactive identity-bound
+            # Codex unit, NOT a claim that separate administrative jobs ended.
+            # Journal uncertainty before opening the next admission.
+            from .reporting import enqueue
+            enqueue(ref, at, state_dir=root, status="interrupted")
+            return {"issue": ref, "at": at, "state": "interrupted"}
         finally:
             os.close(execution)
     finally:

@@ -169,8 +169,9 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
     """Administratively retire a request after stopping its systemd unit.
 
     No automatic retry. A new submission requires a different timestamp.
-    Fail closed for accepted orphans without full-descendant containment proof.
-    For never-accepted requests, require unit stop and an unlocked slot.
+    An explicit operator release retires a stopped Codex worker without
+    claiming that independently managed services or effects have stopped.
+    Require a free execution lock and verified systemd stop.
     """
     if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
@@ -205,13 +206,10 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 fcntl.flock(execution_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise ValueError("execution_active") from exc
-            # Under the same admission and execution gates, inspect the
-            # authoritative acceptance journal before any systemd operation.
-            # A stopped/collected transient unit, free flock and MainPID=0
-            # cannot rule out a previously accepted Codex descendant that
-            # escaped to a different same-user systemd scope. Do not enqueue
-            # "interrupted", stop the unit or release this reservation without
-            # a separately verified process-containment boundary.
+            # Validate the acceptance journal while holding both locks.
+            # Release is an explicit operator reconciliation of Codex, not
+            # an assertion that external administrative jobs have ended.
+            was_accepted = False
             ledger = root / "accepted.jsonl"
             if ledger.is_symlink():
                 raise ValueError("unsafe dispatch journal")
@@ -223,7 +221,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                             or not isinstance(accepted.get("at"), str)):
                         raise ValueError("invalid acceptance journal")
                     if accepted["issue"] == ref and accepted["at"] == at:
-                        raise ValueError("execution_containment_unverified")
+                        was_accepted = True
             unit = "gway-agent-" + digest[:32] + ".service"
             # Stop first: a successful is-active check alone would race a pending start.
             stopped = runner(["systemctl", "--user", "stop", unit],
@@ -267,9 +265,14 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                         raise ValueError("unit_inactive_unconfirmed")
             elif state not in ("inactive", "failed"):
                 raise ValueError("unit_inactive_unconfirmed")
-            # No matching accepted execution exists. This is request-only
-            # cancellation; do not claim Codex executed or fabricate an
-            # interruption. The same frozen request id cannot be resubmitted.
+            # The accepted Codex result is uncertain. fsync an interruption
+            # report before writing the release marker. A failure here keeps
+            # the old accepted slot blocked. This does not attest host work.
+            if was_accepted:
+                from .reporting import enqueue
+                enqueue(ref, at, state_dir=root, status="interrupted")
+            # A never-accepted request is only a request cancellation.
+            # The frozen timestamp must not be resubmitted in either case.
             released = root / "released"
             _private_directory(released)
             path = released / (digest + ".json")

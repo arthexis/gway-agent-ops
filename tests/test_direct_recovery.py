@@ -59,15 +59,29 @@ class DirectRecoveryTests(unittest.TestCase):
             cgroup_text="0::" + self.cgroup + "\n0::" + self.cgroup))
         self.assertEqual(self.supervisor["unit"], self.unit)
 
-    def test_inactive_original_cgroup_is_not_proof_of_no_escaped_children(self):
+    def test_operator_reconciles_inactive_direct_codex_not_external_jobs(self):
         self.accepted()
         runner = self.evidence()
-        with self.assertRaisesRegex(ValueError, "direct_containment_unverified"):
-            recover_direct(REF, AT, state_dir=self.root, runner=runner)
-        cmd = runner.call_args.args[0]
-        self.assertEqual(cmd[:4], ["systemctl", "--user", "show", self.unit])
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=runner)["state"], "interrupted")
+        self.assertEqual(runner.call_args.args[0][:4],
+                         ["systemctl", "--user", "show", self.unit])
+        observed = observe(REF, AT, state_dir=self.root)
+        self.assertEqual(observed["state"], "interrupted")
+        self.assertEqual(observed["admin_work_state"], "not_attested")
+        self.assertEqual(len(list((self.root / "outbox").glob("*.json"))), 1)
+        with admission("arthexis/example#13", AT, state_dir=self.root):
+            pass
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=Mock())["state"], "already_terminal")
+
+    def test_direct_reconciliation_failure_preserves_accepted_identity(self):
+        self.accepted()
+        with patch("gway_agent_ops.reporting.enqueue",
+                   side_effect=OSError("synthetic fsync failure")):
+            with self.assertRaisesRegex(OSError, "synthetic fsync failure"):
+                recover_direct(REF, AT, state_dir=self.root, runner=self.evidence())
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
-        self.assertFalse((self.root / "outbox").exists())
         with self.assertRaises(Busy):
             with admission("arthexis/example#13", AT, state_dir=self.root):
                 pass
@@ -118,13 +132,14 @@ class DirectRecoveryTests(unittest.TestCase):
                     recover_direct(REF, AT, state_dir=self.root, runner=runner)
                 self.assertFalse((self.root / "outbox").exists())
 
-    def test_sigkill_failed_unit_needs_proof_beyond_original_cgroup(self):
+    def test_operator_reconciles_failed_failed_unit_after_sigkill(self):
         self.accepted()
-        runner = self.evidence(ActiveState="failed", SubState="failed")
-        with self.assertRaisesRegex(ValueError, "direct_containment_unverified"):
-            recover_direct(REF, AT, state_dir=self.root, runner=runner)
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
-        self.assertFalse((self.root / "outbox").exists())
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=self.evidence(ActiveState="failed",
+                                                             SubState="failed"))["state"],
+                         "interrupted")
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "interrupted")
+        self.assertEqual(len(list((self.root / "outbox").glob("*.json"))), 1)
 
     def test_failed_unit_with_descendants_or_restart_policy_stays_blocked(self):
         self.accepted()
@@ -169,24 +184,17 @@ class DirectRecoveryTests(unittest.TestCase):
                 TasksCurrent="0", MainPID="0", ActiveState="inactive"))
         self.assertFalse((self.root / "outbox").exists())
 
-    def test_escaped_descendant_model_does_not_promote_terminal_state(self):
-        # Two independent scopes can coexist. The original unit is empty,
-        # while a child has escaped to a different scope with a live PID.
-        # The original unit's systemctl show cannot reveal this descendant.
+    def test_external_scope_may_outlive_explicit_codex_reconciliation(self):
         self.accepted()
-        escaped = {"pid": 4811, "alive": True, "cgroup":
-                   "/user.slice/user-1000.slice/user@1000.service/app.slice/escaped.scope",
-                   "invocation_id": ID}
-        self.assertNotEqual(escaped["cgroup"], self.cgroup)
-        self.assertTrue(escaped["alive"])
-        with self.assertRaisesRegex(ValueError, "direct_containment_unverified"):
-            recover_direct(REF, AT, state_dir=self.root, runner=self.evidence())
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
-        self.assertFalse((self.root / "outbox").exists())
-        self.assertFalse((self.root / "delivered").exists())
-        with self.assertRaises(Busy):
-            with admission("arthexis/example#13", AT, state_dir=self.root):
-                pass
+        external = {"pid": 4811, "alive": True, "scope": "independent-job.scope"}
+        self.assertTrue(external["alive"])
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=self.evidence())["state"], "interrupted")
+        self.assertTrue(external["alive"])
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["admin_work_state"],
+                         "not_attested")
+        self.assertEqual(len(list((self.root / "outbox").glob("*.json"))), 1)
+
 
 
 if __name__ == "__main__":

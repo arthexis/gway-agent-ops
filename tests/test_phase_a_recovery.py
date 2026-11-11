@@ -68,40 +68,58 @@ class PhaseARecoveryTests(unittest.TestCase):
         self.assertEqual(self.submit()["state"], "already_requested")
         self.assertEqual(runner.call_count, 1)
 
-    def test_accepted_orphan_with_stopped_unit_never_releases_without_containment(self):
+    def test_explicit_accepted_release_retains_uncertain_codex_report(self):
         self.submit()
         normalized = timestamp(AT)
         (self.root / "accepted.jsonl").write_text(
             json.dumps({"issue": REF, "at": normalized}) + "\n")
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
         stopped = self.stopped_unit()
-        with self.assertRaisesRegex(ValueError, "execution_containment_unverified"):
-            release(REF, AT, state_dir=self.root, runner=stopped)
-        stopped.assert_not_called()
-        self.assertFalse((self.root / "outbox").exists())
-        self.assertFalse((self.root / "released").exists())
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        self.assertEqual(release(REF, AT, state_dir=self.root, runner=stopped)
+                         ["state"], "released")
+        self.assertEqual(stopped.call_count, 2)
+        reports = list((self.root / "outbox").glob("*.json"))
+        self.assertEqual(len(reports), 1)
+        record = json.loads(reports[0].read_text())
+        self.assertEqual(record["status"], "interrupted")
+        self.assertEqual(record["admin_work_state"], "not_attested")
+        observed = observe(REF, AT, state_dir=self.root)
+        self.assertEqual(observed["state"], "released")
+        self.assertTrue(observed["execution_terminal"])
+        self.assertEqual(observed["admin_work_state"], "not_attested")
         self.assertEqual(self.submit()["state"], "already_requested")
-        self.assertEqual(self.submit(ref="arthexis/example#20")["state"], "busy")
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(self.submit(ref="arthexis/example#20")["state"], "requested")
+        self.assertEqual(flush(state_dir=self.root, runner=self.github_ok),
+                         {"sent": 1, "pending": 0})
+        self.assertTrue(observe(REF, AT, state_dir=self.root)["delivery_confirmed"])
 
-    def test_accepted_orphan_with_escaped_child_remains_blocked_after_restart(self):
+    def test_operator_release_does_not_claim_external_service_stopped(self):
         self.submit()
         normalized = timestamp(AT)
         (self.root / "accepted.jsonl").write_text(
             json.dumps({"issue": REF, "at": normalized}) + "\n")
-        # Original transient unit is allegedly stopped and has no tasks.
-        # Escaped same-user scope may still contain Codex descendants.
-        escaped = {"pid": 4811, "alive": True, "scope": "escaped-child.scope"}
-        self.assertTrue(escaped["alive"])
-        original_stopped = self.stopped_unit()
-        for _ in range(2):  # independent recovery attempts, same disk journal
-            with self.assertRaisesRegex(ValueError, "execution_containment_unverified"):
-                release(REF, AT, state_dir=self.root, runner=original_stopped)
-            self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
-            self.assertFalse((self.root / "outbox").exists())
-            self.assertFalse((self.root / "released").exists())
-        original_stopped.assert_not_called()
+        external = {"unit": "synthetic-deployment.service", "alive": True}
+        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(release(REF, AT, state_dir=self.root,
+                                 runner=self.stopped_unit())["state"], "released")
+        self.assertTrue(external["alive"])
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["admin_work_state"],
+                         "not_attested")
+        again = release(REF, AT, state_dir=self.root, runner=Mock())
+        self.assertEqual(again["state"], "already_terminal")
+        self.assertEqual(len(list((self.root / "outbox").glob("*.json"))), 1)
+
+    def test_interrupted_report_failure_blocks_operator_release(self):
+        self.submit()
+        normalized = timestamp(AT)
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": REF, "at": normalized}) + "\n")
+        with patch("gway_agent_ops.reporting.enqueue",
+                   side_effect=OSError("synthetic disk failure")):
+            with self.assertRaisesRegex(OSError, "synthetic disk failure"):
+                release(REF, AT, state_dir=self.root, runner=self.stopped_unit())
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        self.assertFalse((self.root / "released").exists())
+        self.assertFalse(status(state_dir=self.root)["available"])
 
     def test_malformed_acceptance_journal_fails_closed_without_stopping_unit(self):
         self.submit()
