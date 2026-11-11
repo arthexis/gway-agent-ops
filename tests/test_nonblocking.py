@@ -85,7 +85,7 @@ class NonblockingTests(unittest.TestCase):
         failed = Mock(return_value=Mock(returncode=1, stdout=""))
         with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
             release(REF, AT, state_dir=self.root, runner=failed)
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "requested")
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "launch_unconfirmed")
         good = Mock(side_effect=[Mock(returncode=0, stdout=""),
                                  Mock(returncode=3, stdout="inactive\n")])
         self.assertEqual(release(REF, AT, state_dir=self.root, runner=good)["state"], "released")

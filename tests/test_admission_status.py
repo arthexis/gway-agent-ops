@@ -18,7 +18,7 @@ class AdmissionStatusTests(unittest.TestCase):
                 "state": "idle", "available": True, "active_issue": None, "active_at": None})
             self.assertEqual(list(root.iterdir()), [])
 
-    def test_reserved_and_released(self):
+    def test_failed_launch_is_uncertain(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}), \
@@ -27,9 +27,10 @@ class AdmissionStatusTests(unittest.TestCase):
                 submit("owner/repo#1", "2026-10-13T15:00:00Z",
                        allowed_repositories=("owner/repo",), state_dir=root)
                 observed = status(state_dir=root)
-                self.assertEqual(observed["state"], "reserved")
+                self.assertEqual(observed["state"], "uncertain")
                 self.assertFalse(observed["available"])
                 self.assertEqual(observed["active_issue"], "owner/repo#1")
+                self.assertEqual(observed["active_at"], "2026-10-13T15:00:00.000000Z")
 
     def test_running_lock_blocks_availability(self):
         with tempfile.TemporaryDirectory() as temp:
