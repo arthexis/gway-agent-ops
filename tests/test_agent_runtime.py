@@ -1,12 +1,15 @@
 """A2.3 runtime preparation: no ambient credential inheritance."""
 import os
+import socket
 import stat
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_agent_ops.runtime import runtime_context
+from gway_agent_ops.runtime import (
+    runtime_context, _same_user_runtime_dir, systemd_user_environment,
+)
 
 
 class RuntimeTests(unittest.TestCase):
@@ -53,6 +56,50 @@ class RuntimeTests(unittest.TestCase):
         auth.write_text('{"secret":"unread"}')
         auth.chmod(0o600)
         self.assertTrue(runtime_context(root=self.root)["authentication_available"])
+
+    def test_same_user_systemd_bus_is_verified_and_available_to_codex(self):
+        # Synthetic UNIX socket: no live systemd, Codex or host mutations.
+        with tempfile.TemporaryDirectory() as tmp:
+            userdir = Path(tmp) / str(os.getuid())
+            userdir.mkdir(mode=0o700)
+            bus = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(bus.close)
+            bus.bind(str(userdir / "bus"))
+            self.assertEqual(_same_user_runtime_dir(Path(tmp)), str(userdir))
+            with patch("gway_agent_ops.runtime._same_user_runtime_dir",
+                       return_value=str(userdir)):
+                context = runtime_context(root=self.root, env={
+                    "PATH": "/usr/bin", "XDG_RUNTIME_DIR": "/tmp/untrusted",
+                    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/untrusted/bus",
+                    "OPENAI_API_KEY": "not-to-propagate"})
+            self.assertEqual(context["environment"]["XDG_RUNTIME_DIR"], str(userdir))
+            self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", context["environment"])
+            self.assertNotIn("OPENAI_API_KEY", context["environment"])
+            self.assertEqual(context["environment"]["CODEX_HOME"], str(self.codex))
+            userdir.chmod(0o755)
+            self.assertIsNone(_same_user_runtime_dir(Path(tmp)))
+            userdir.chmod(0o700)
+            (userdir / "bus").unlink()
+            self.assertIsNone(_same_user_runtime_dir(Path(tmp)))
+
+    def test_absent_user_bus_never_inherits_caller_supplied_runtime_dir(self):
+        with patch("gway_agent_ops.runtime._same_user_runtime_dir", return_value=None):
+            context = runtime_context(root=self.root, env={
+                "XDG_RUNTIME_DIR": "/tmp/forged", "PATH": "/usr/bin"})
+        self.assertNotIn("XDG_RUNTIME_DIR", context["environment"])
+
+    def test_systemd_environment_uses_only_verified_same_user_bus(self):
+        with patch("gway_agent_ops.runtime._same_user_runtime_dir",
+                   return_value="/run/user/1000"), patch.dict(os.environ, {
+                   "XDG_RUNTIME_DIR": "/tmp/forged",
+                   "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/forged/bus"}):
+            env = systemd_user_environment()
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+        self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
+        with patch("gway_agent_ops.runtime._same_user_runtime_dir",
+                   return_value=None):
+            with self.assertRaisesRegex(ValueError, "agent_user_bus_unavailable"):
+                systemd_user_environment()
 
     def test_explicit_seed_reference_reuses_private_home_without_copy(self):
         import json

@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 
 from .dispatch import DEFAULT_STATE, ISSUE, timestamp
-from .reporting import _key
+from .reporting import _key, _validate_report
 
 
 def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
@@ -21,43 +21,77 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         raise ValueError("unsafe release path")
     if released.exists():
         record = json.loads(released.read_text(encoding="utf-8"))
-        if record.get("issue") != ref or record.get("at") != at:
+        if record.get("issue") != ref or record.get("at") != at or record.get("state") != "released":
             raise ValueError("invalid release journal")
-        return {"issue": ref, "at": at, "state": "released", **_provenance(root, ref, at)}
+        # Administrative release is not a claim of Codex success.
+        delivery = {"delivery_attempted": False, "delivery_confirmed": False,
+                    "execution_terminal": False, "findings_state": None}
+        key = _key(ref, at) + ".json"
+        for folder in ("delivered", "outbox"):
+            path = root / folder / key
+            if path.is_symlink():
+                raise ValueError("unsafe report path")
+            if path.exists():
+                report = _validate_report(
+                    json.loads(path.read_text(encoding="utf-8")), ref, at,
+                    delivered=(folder == "delivered"))
+                delivery = {"delivery_attempted": (folder == "delivered"
+                            or report.get("delivery_attempted", False)),
+                            "delivery_confirmed": folder == "delivered",
+                            "execution_terminal": True,
+                            "admin_work_state": report.get("admin_work_state", "not_attested"),
+                            "findings_state": report.get("findings_state")}
+                break
+        return {"issue": ref, "at": at, "state": "released",
+                "request_terminal": True, **delivery, **_provenance(root, ref, at)}
     ledger = root / "accepted.jsonl"
-    if not ledger.exists():
-        return _pending_request(root, ref, at)
     if ledger.is_symlink():
         raise ValueError("unsafe dispatch journal")
-    accepted = any(
-        row.get("issue") == ref and row.get("at") == at
-        for row in (json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines())
-    )
+    if not ledger.exists():
+        return _pending_request(root, ref, at)
+    accepted = False
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if (type(row) is not dict
+                or not isinstance(row.get("issue"), str)
+                or not isinstance(row.get("at"), str)):
+            raise ValueError("invalid acceptance journal")
+        if row["issue"] == ref and row["at"] == at:
+            accepted = True
     if not accepted:
         return _pending_request(root, ref, at)
     key = _key(ref, at) + ".json"
-    for folder in ("outbox", "delivered"):
+    # A crash may leave both records after writing the delivered receipt but
+    # before unlinking the outbox entry. Durable delivery evidence wins.
+    for folder in ("delivered", "outbox"):
         path = root / folder / key
         if path.is_symlink():
             raise ValueError("unsafe report path")
         if path.exists():
             if folder == "delivered":
-                report = json.loads(path.read_text(encoding="utf-8"))
+                report = _validate_report(
+                    json.loads(path.read_text(encoding="utf-8")), ref, at,
+                    delivered=True)
                 state = report.get("status")
                 if state not in ("finished", "codex_failed", "interrupted"):
                     return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
                         "reported": True, "execution_terminal": True,
+                        "admin_work_state": report.get("admin_work_state", "not_attested"),
                         "receipt_state": report.get("receipt_state", "not_requested"),
                         "receipt_retained": report.get("receipt_state") == "receipt_valid",
+                        "findings_state": report.get("findings_state"),
                         "delivery_attempted": True, "delivery_confirmed": True,
                         "exit_code": report.get("exit_code"),
                         **_provenance(root, ref, at)}
-            report = json.loads(path.read_text(encoding="utf-8"))
+            report = _validate_report(
+                json.loads(path.read_text(encoding="utf-8")), ref, at)
             return {"issue": ref, "at": at, "state": report["status"],
                     "execution_terminal": True,
+                    "admin_work_state": report.get("admin_work_state", "not_attested"),
                     "receipt_state": report.get("receipt_state", "not_requested"),
                     "receipt_retained": report.get("receipt_state") == "receipt_valid",
+                    "findings_state": report.get("findings_state"),
                     "delivery_attempted": report.get("delivery_attempted", False), "delivery_confirmed": False,
                     "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
     return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
@@ -73,7 +107,10 @@ def _pending_request(root: Path, ref: str, at: str) -> dict:
     request = json.loads(path.read_text(encoding="utf-8"))
     if request.get("issue") != ref or request.get("at") != at:
         raise ValueError("invalid request journal")
-    return {"issue": ref, "at": at, "state": "requested", **_provenance(root, ref, at)}
+    state = request.get("state", "requested")
+    if state not in ("requested", "launch_unconfirmed"):
+        raise ValueError("invalid request state")
+    return {"issue": ref, "at": at, "state": state, **_provenance(root, ref, at)}
 
 
 def _provenance(root: Path, ref: str, at: str) -> dict:

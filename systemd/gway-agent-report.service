@@ -1,0 +1,11 @@
+[Unit]
+Description=AgentOps durable GitHub report outbox (no Codex execution)
+Documentation=https://github.com/arthexis/gway-agent-ops/blob/main/docs/phase-a-recovery.md
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=%h/.local/bin/agent report --json
+TimeoutStartSec=120
+NoNewPrivileges=yes
+PrivateTmp=yes

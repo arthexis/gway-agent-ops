@@ -108,6 +108,14 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                     if observe(row["issue"], row["at"], state_dir=directory)["state"] not in terminal:
                         raise Busy("a previously accepted invocation is unresolved")
                 record = {"issue": issue, "at": at}
+                # A direct CLI worker may have a dedicated, identity-bound
+                # systemd service. Capture provenance before accepting work.
+                # Interactive/legacy CLI calls keep the existing fail-closed
+                # semantics: they have no independently verifiable supervisor.
+                from .direct_recovery import direct_supervision
+                supervisor = direct_supervision(issue, at)
+                if supervisor is not None:
+                    record["direct_supervisor"] = supervisor
                 if comment_baseline is not None:
                     record["comment_baseline"] = comment_baseline
                 handle.write(json.dumps(record, separators=(",", ":")) + "\n")

@@ -20,6 +20,10 @@ class ControllerHardeningTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        bus = patch("gway_agent_ops.nonblocking.systemd_user_environment",
+                    return_value={"XDG_RUNTIME_DIR": "/run/user/1000"})
+        bus.start()
+        self.addCleanup(bus.stop)
 
     def test_direct_accepted_without_terminal_blocks_restart_and_submit(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
@@ -144,7 +148,8 @@ class ControllerHardeningTests(unittest.TestCase):
         folder = self.root / "delivered"
         folder.mkdir()
         path = folder / (_key(ref, timestamp(at)) + ".json")
-        path.write_text(json.dumps({"status": "finished", "exit_code": 0}))
+        path.write_text(json.dumps({"status": "finished", "exit_code": 0,
+                                    "marker": "agent-dispatch:" + _key(ref, timestamp(at))}))
         self.assertTrue(status(state_dir=self.root)["available"])
         with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                        state_dir=self.root):

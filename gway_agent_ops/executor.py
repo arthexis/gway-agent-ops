@@ -12,7 +12,7 @@ from pathlib import Path
 from .dispatch import Busy, Duplicate, admission, timestamp
 from .github_issues import IssueRejected, resolve, require_target_label
 from .runtime import runtime_context
-from .reporting import enqueue, recover, flush
+from .reporting import enqueue, recover
 from .findings import parse_findings
 
 
@@ -67,7 +67,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
             allowed_repositories: tuple[str, ...], workspace_root: Path,
             timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
             state_dir: Path | None = None, runtime=runtime_context) -> dict:
-    """Validate before admission, then hold one lock through Codex completion."""
+    """Report Codex process outcome without attesting administrative side effects."""
     if not 1 <= timeout_seconds <= 7200:
         raise ValueError("timeout must be 1..7200 seconds")
     if not allowed_repositories:
@@ -96,16 +96,27 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         recover(state_dir=state_dir, active=(key, accepted["at"]))
         try:
             process = runner(
-                ["codex", "exec", "--sandbox", "workspace-write", "-"],
+                # The adopted CODEX_HOME owns sandbox and approval policy.
+                # Do not override its existing configuration from AgentOps.
+                ["codex", "exec", "-"],
                 input=prompt, cwd=resolved, env=context["environment"],
                 text=True, capture_output=True, timeout=timeout_seconds, check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            enqueue(key, accepted["at"], state_dir=state_dir)
+            # subprocess.run kills and waits for the immediate child on a
+            # timeout, but cannot prove all grandchildren terminated (a child
+            # can have started a different process group or systemd scope).
+            # Keep this accepted identity unresolved rather than creating a
+            # fabricated terminal "interrupted" report and freeing admission.
             raise ExecutionError("codex_timeout") from exc
         except OSError as exc:
-            enqueue(key, accepted["at"], state_dir=state_dir)
+            # Spawn failure is not a durable proof of absent descendants:
+            # never turn ambiguous execution into a terminal delivery record.
             raise ExecutionError("codex_unavailable") from exc
+        # Normal exit proves the Codex process returned, not that services,
+        # deployments or independently managed administrative jobs ended.
+        # fsync the report before the admission lock is released. A failed
+        # report write keeps the accepted journal unresolved.
         findings = parse_findings(process.stdout) if process.returncode == 0 else None
         enqueue(key, accepted["at"], state_dir=state_dir,
                 status="finished" if process.returncode == 0 else "codex_failed",
@@ -116,4 +127,5 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
                 "issue_revision": "sha256:" + digest,
                 "comment_baseline": issue["comments"],
                 "exit_code": process.returncode,
+                "admin_work_state": "not_attested",
                 "status": "finished" if process.returncode == 0 else "codex_failed"}
