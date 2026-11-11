@@ -42,14 +42,19 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         return {"issue": ref, "at": at, "state": "released",
                 "request_terminal": True, **delivery, **_provenance(root, ref, at)}
     ledger = root / "accepted.jsonl"
-    if not ledger.exists():
-        return _pending_request(root, ref, at)
     if ledger.is_symlink():
         raise ValueError("unsafe dispatch journal")
-    accepted = any(
-        row.get("issue") == ref and row.get("at") == at
-        for row in (json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines())
-    )
+    if not ledger.exists():
+        return _pending_request(root, ref, at)
+    accepted = False
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if (type(row) is not dict
+                or not isinstance(row.get("issue"), str)
+                or not isinstance(row.get("at"), str)):
+            raise ValueError("invalid acceptance journal")
+        if row["issue"] == ref and row["at"] == at:
+            accepted = True
     if not accepted:
         return _pending_request(root, ref, at)
     key = _key(ref, at) + ".json"

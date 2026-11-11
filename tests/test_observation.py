@@ -60,6 +60,27 @@ class ObservationTests(unittest.TestCase):
             self.assertTrue(observed["reported"])
             self.assertTrue((root / "outbox" / key).exists())
 
+    def test_corrupt_acceptance_journal_never_becomes_unknown_or_terminal(self):
+        issue = "arthexis/example#3"
+        at = "2026-10-13T15:00:00Z"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "accepted.jsonl"
+            for entry in ("[]\\n", "null\\n", '{"issue":123,"at":"x"}\\n',
+                          '{"issue":"arthexis/example#3","at":"2026-10-13T15:00:00.000000Z"}\\n[]\\n'):
+                with self.subTest(entry=entry):
+                    ledger.write_text(entry.replace("\\\\n", "\\n"))
+                    with self.assertRaisesRegex(ValueError, "invalid acceptance journal"):
+                        observe(issue, at, state_dir=root)
+
+    def test_broken_acceptance_symlink_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "accepted.jsonl").symlink_to("missing-file")
+            with self.assertRaisesRegex(ValueError, "unsafe dispatch journal"):
+                observe("arthexis/example#3", "2026-10-13T15:00:00Z",
+                        state_dir=root)
+
     def test_rejects_invalid_issue(self):
         with self.assertRaises(ValueError):
             observe("owner/repo/pull/2", "2026-10-13T15:00:00Z")
