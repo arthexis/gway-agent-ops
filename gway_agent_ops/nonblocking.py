@@ -18,6 +18,7 @@ import stat
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
 from .observation import observe
+from .runtime import _same_user_runtime_dir
 
 
 _TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
@@ -45,7 +46,10 @@ def _launch_prerequisites() -> str:
         raise ValueError("agent_workspace_unsafe")
     if not shutil.which("systemd-run"):
         raise ValueError("agent_systemd_run_unavailable")
-    if not os.environ.get("XDG_RUNTIME_DIR"):
+    # Node-owned non-login execution contexts may not export this variable
+    # even when their own /run/user/UID/bus is already available. Validate
+    # that socket instead of requiring a particular shell environment.
+    if _same_user_runtime_dir() is None:
         raise ValueError("agent_user_bus_unavailable")
     return executable
 
@@ -149,9 +153,19 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         ]
         # Invoke the same installed CLI used for read-only operations.
         command.extend([executable, "issue", ref, "--at", at, "--json"])
+        # subprocess.run normally inherits its caller environment. Preserve
+        # that behavior but select the validated *same-user* systemd bus,
+        # never an arbitrary supplied DBus address or XDG path.
+        launch_env = dict(os.environ)
+        launch_env.pop("DBUS_SESSION_BUS_ADDRESS", None)
+        user_runtime = _same_user_runtime_dir()
+        if user_runtime is None:
+            launch_env.pop("XDG_RUNTIME_DIR", None)
+        else:
+            launch_env["XDG_RUNTIME_DIR"] = user_runtime
         try:
             result = runner(command, capture_output=True, text=True,
-                            check=False, timeout=5)
+                            check=False, timeout=5, env=launch_env)
             if result.returncode == 0:
                 return {"issue": ref, "at": at, "state": "requested"}
         except (OSError, subprocess.TimeoutExpired):

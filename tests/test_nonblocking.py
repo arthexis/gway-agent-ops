@@ -101,12 +101,49 @@ class NonblockingTests(unittest.TestCase):
             env = {"GWAY_AGENT_WORKSPACE_ROOT": str(workspace), "XDG_RUNTIME_DIR": "/run/user/1000"}
             with patch.dict(os.environ, env), patch("gway_agent_ops.nonblocking.shutil.which",
                     side_effect=lambda name: "/bin/true"), patch(
-                    "gway_agent_ops.nonblocking.Path.is_file", return_value=True):
+                    "gway_agent_ops.nonblocking.Path.is_file", return_value=True), patch(
+                    "gway_agent_ops.nonblocking._same_user_runtime_dir",
+                    return_value="/run/user/1000"):
                 self.assertEqual(_launch_prerequisites(), "/bin/true")
                 os.chmod(workspace, 0o755)
                 with self.assertRaisesRegex(ValueError, "agent_workspace_unsafe"):
                     _launch_prerequisites()
             os.chmod(workspace, 0o700)
+
+    def test_nonlogin_submit_uses_verified_same_user_bus(self):
+        # Simulate the node's non-login MCP executor: its own systemd bus is
+        # available, but ambient XDG_RUNTIME_DIR may be absent or untrusted.
+        runner = Mock(return_value=Mock(returncode=0))
+        with patch("gway_agent_ops.nonblocking._launch_prerequisites",
+                   return_value="/usr/bin/agent"), patch(
+                   "gway_agent_ops.nonblocking._same_user_runtime_dir",
+                   return_value="/run/user/1000"), patch.dict(
+                   os.environ, {"XDG_RUNTIME_DIR": "/tmp/untrusted",
+                                "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/untrusted/bus"}):
+            response = submit(REF, AT, allowed_repositories=REPOS,
+                              state_dir=self.root, runner=runner)
+        self.assertEqual(response["state"], "requested")
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_args.kwargs["env"]["XDG_RUNTIME_DIR"],
+                         "/run/user/1000")
+        self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", runner.call_args.kwargs["env"])
+        self.assertEqual(self.send()["state"], "already_requested")
+
+    def test_no_valid_same_user_bus_blocks_preflight_even_with_forged_env(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            workspace.chmod(0o700)
+            with patch.dict(os.environ, {
+                     "GWAY_AGENT_WORKSPACE_ROOT": str(workspace),
+                     "XDG_RUNTIME_DIR": "/tmp/forged"}), patch(
+                     "gway_agent_ops.nonblocking.shutil.which",
+                     side_effect=lambda name: "/bin/true"), patch(
+                     "gway_agent_ops.nonblocking.Path.is_file",
+                     return_value=True), patch(
+                     "gway_agent_ops.nonblocking._same_user_runtime_dir",
+                     return_value=None):
+                with self.assertRaisesRegex(ValueError, "agent_user_bus_unavailable"):
+                    _launch_prerequisites()
 
     def test_missing_workspace_is_specific(self):
         with patch.dict(os.environ, {"GWAY_AGENT_WORKSPACE_ROOT": ""}), patch(

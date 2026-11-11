@@ -26,7 +26,11 @@ the existing service, Ansible or GWay Remote mechanism.
   same-user `systemctl --user` connectivity for non-login administrative
   contexts without changing node permissions, config files or service state.
   No arbitrary caller-supplied bus path, DBus address or ambient tokens are
-  passed to Codex.
+  passed to Codex. The same verified bus is also used for the *launching*
+  `systemd-run --user` process: `agent submit` no longer fails preflight
+  solely because a non-login executor omitted ambient XDG_RUNTIME_DIR.
+  A missing or unsafe bus fails preflight before recording a new request;
+  existing at-most-once handling still governs ambiguous launches.
 - A request is fsynced under the existing locks before launching Codex. The
   frozen identity is \`(issue, normalized UTC timestamp)\`; a duplicate identity
   is never run twice, including after a restart.
