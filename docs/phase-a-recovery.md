@@ -11,11 +11,12 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   A crash before the update leaves requested intentionally ambiguous.
 - The same (issue, UTC timestamp) cannot launch twice. Other issues remain busy
   while a request is unresolved. Neither a timeout nor a reconnect authorizes
-  a new timestamp or a retry. The direct executor also leaves a timed-out or
-  OSError-uncertain Codex invocation **accepted and unresolved**: Python's
-  subprocess timeout kills only its immediate child and gives no durable
-  descendant-termination witness. It does not enqueue an "interrupted"
-  terminal report in these ambiguous cases.
+  a new timestamp or a retry. The direct executor preserves the **accepted,
+  unresolved** identity on ALL Codex outcomes lacking an independent
+  containment witness: exit code 0, nonzero, timeout, and OSError. Neither a
+  normal return nor a timeout proves descendant termination. The executing
+  worker cannot attest the end of its own execution scope; that must happen
+  afterwards in a trusted supervisor. No terminal report is enqueued.
 - The existing agent release REF --at UTC is an explicit *operator action*.
   It requires an unlocked execution slot and a confirmed systemd stop/inactivity
   **only for requests with no matching accepted execution**. Once the journal
@@ -176,9 +177,10 @@ observing a process tree or matching an InvocationID is insufficient.
 
 No kernel/user/permission changes, service installation or runtime deployment
 are included in this PR. Until the boundary is proved, both accepted-orphan
-recovery interfaces remain intentionally unavailable. Normal Codex return
-also lacks proof that no detached descendants survive: review the positive
-result-reporting path before marking the whole feature Ready.
+recovery interfaces remain intentionally unavailable. Both normal return
+paths (zero and nonzero) now deliberately remain accepted/unresolved, too.
+This freezes direct-CLI terminal reporting and follow-on admission until a
+trusted *post-execution* witness exists. The feature is not Ready.
 
 ### Acceptance evidence matrix — proposal, never an automatic grant
 
@@ -199,6 +201,12 @@ because \`Delegate=no\` or \`KillMode=control-group\`. It must be demonstrably
 prevented from requesting a new scope, migrating cgroups or invoking a
 privileged helper that can migrate on its behalf.
 
+systemd's `ProtectControlGroups=` hardening directive is documented as
+**system-service only**; it is not supported in per-user manager services.
+Do not treat a user-unit property or `Delegate=no` as verified isolation.
+A supported non-escapable boundary has to be proved in a disposable host
+without modifying the current node's permissions or service manager.
+
 The acceptance harness must be **separate from production**. It should attempt
 scope migration through the user bus; new process sessions (\`setsid\`);
 orphaned grandchildren; \`SIGKILL\`; unit collection/restart; PID reuse; and
@@ -207,9 +215,14 @@ denied migration or fail-closed non-release. Reboot/restart and successful
 Codex exit paths need the same witness as timeouts. No offline model or unit
 property checklist should be construed as a real kernel-enforcement test.
 
-**Current PR implementation:** neither \`recover-direct\` nor \`agent release\`
-possesses this witness and both refuse accepted-orphan release. The direct
-executor now also preserves the accepted slot on uncertain subprocess timeout
-or OSError. The *normal exit-code* reporting path still lacks a descendants
-witness, so the feature is **not Ready**, even with all unit tests passing.
-
+**Current PR implementation:** neither `recover-direct` nor `agent release`
+possesses the required containment witness; both refuse accepted-orphan
+release. `executor.execute` now also fails closed for *normal* returns
+(returncode 0 or nonzero), timeouts, and OSError without writing a terminal
+outbox/delivered record. It raises `codex_containment_unverified` for a normal
+return while maintaining durable accepted identity and at-most-once. This is
+a **safety freeze**, not an implemented positive verifier. The independently
+supervised runtime, its anti-escape enforcement, and the post-execution terminal
+witness must be proven before restoring success/failure reporting. Tests that
+directly enqueue synthetic terminal records test only reporting mechanics, not
+permission to end execution. Keep Draft.

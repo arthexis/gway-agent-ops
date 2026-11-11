@@ -45,18 +45,42 @@ class ExecutionTests(unittest.TestCase):
                          runtime=runtime, **kwargs)
         return result, seen
 
-    def test_exec_args_lock_and_metadata(self):
-        result, seen = self.call()
-        self.assertEqual(result["status"], "finished")
-        self.assertEqual(result["comment_baseline"], 6)
-        self.assertTrue(result["issue_revision"].startswith("sha256:"))
+    def test_normal_zero_return_without_external_witness_never_unlocks(self):
+        seen = []
+        with self.assertRaisesRegex(ExecutionError, "codex_containment_unverified"):
+            self.call(seen=seen)
         argv, options = seen[0]
         self.assertEqual(argv, ["codex", "exec", "--sandbox", "workspace-write", "-"])
         self.assertEqual(options["cwd"], self.checkout)
         self.assertIn("Body", options["input"])
-        self.assertNotIn("TOKEN-NEVER-PRINT", str(result))
+        self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                 state_dir=self.state)["state"], "accepted")
+        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
+        self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
         with self.assertRaises(Duplicate):
             self.call()
+        with self.assertRaises(Busy):
+            with admission("arthexis/example#27", "2026-10-13T01:00:00Z",
+                           state_dir=self.state):
+                pass
+
+    def test_nonzero_return_without_external_witness_never_unlocks(self):
+        seen = []
+        def failed_runner(argv, **kwargs):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 37, "", "synthetic failure")
+        with self.assertRaisesRegex(ExecutionError, "codex_containment_unverified"):
+            self.call(runner_override=failed_runner)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                 state_dir=self.state)["state"], "accepted")
+        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
+        self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
+        with self.assertRaises(Duplicate):
+            self.call(runner_override=failed_runner)
+        self.assertEqual(len(seen), 1)
 
     def test_timed_out_codex_cannot_fabricate_terminal_or_free_slot(self):
         def timeout_runner(args, **kwargs):
