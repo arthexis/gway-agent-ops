@@ -34,8 +34,10 @@ misclassify a still-running task as interrupted.
 
 The explicit release operation requires a systemd-backed request marker.
 Direct CLI invocations with no request marker remain blocked after a crash.
-Unconfirmed systemd status and active execution locks also remain blocked;
-no automatic resubmission or optimistic status promotion is allowed.
+Unconfirmed systemd status and active execution locks also remain blocked.
+An unknown is-active result needs independent not-found/inactive evidence from
+systemd show; a bare unknown is never enough. No automatic resubmission or
+optimistic status promotion is allowed.
 
 A confirmed systemd stop does not prove whether Codex completed its intended
 changes before the interruption. The report says interrupted, never finished,

@@ -101,6 +101,31 @@ class PhaseARecoveryTests(unittest.TestCase):
         self.assertFalse((self.root / "outbox").exists())
         self.assertFalse((self.root / "released").exists())
 
+    def test_unknown_systemd_state_without_proof_cannot_release(self):
+        self.submit(runner=Mock(return_value=Mock(returncode=1)))
+        unknown = Mock(side_effect=[
+            Mock(returncode=0, stdout=""),
+            Mock(returncode=3, stdout="unknown\n"),
+            Mock(returncode=1, stdout=""),
+        ])
+        with self.assertRaisesRegex(ValueError, "unit_inactive_unconfirmed"):
+            release(REF, AT, state_dir=self.root, runner=unknown)
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"],
+                         "launch_unconfirmed")
+        self.assertFalse((self.root / "released").exists())
+
+    def test_collected_transient_unit_requires_absent_and_inactive(self):
+        self.submit(runner=Mock(return_value=Mock(returncode=1)))
+        collected = Mock(side_effect=[
+            Mock(returncode=5, stdout=""),
+            Mock(returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n"),
+            Mock(returncode=3, stdout="unknown\n"),
+            Mock(returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n"),
+        ])
+        self.assertEqual(release(REF, AT, state_dir=self.root, runner=collected)
+                         ["state"], "released")
+        self.assertEqual(collected.call_count, 4)
+
     def test_unaccepted_launch_release_does_not_claim_execution(self):
         self.submit(runner=Mock(return_value=Mock(returncode=1)))
         self.assertEqual(release(REF, AT, state_dir=self.root, runner=self.stopped_unit())
