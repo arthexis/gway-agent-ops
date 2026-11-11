@@ -58,7 +58,7 @@ class OutboxWorkerTests(unittest.TestCase):
     def test_time_budget_keeps_queued_records(self):
         self.enqueue(1)
         self.enqueue(2)
-        times = iter([0, 0, 0, 1, 1, 2, 2, 2, 2, 2])
+        times = iter([0, 1, 1])
         def clock():
             return next(times, 2)
         self.assertEqual(flush(state_dir=self.root, runner=self.success,
