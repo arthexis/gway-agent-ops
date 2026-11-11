@@ -75,7 +75,8 @@ def _trusted_descriptor(path: Path) -> int:
 def _systemd_inactive(supervisor, *, runner):
     """Trust only the same systemd invocation with an empty controlled cgroup."""
     props = ("LoadState", "ActiveState", "SubState", "InvocationID",
-             "KillMode", "TasksCurrent", "MainPID", "ControlPID", "ControlGroup")
+             "KillMode", "Restart", "TasksCurrent", "MainPID", "ControlPID",
+             "ControlGroup")
     result = runner(["systemctl", "--user", "show", supervisor["unit"],
                      *("--property=" + key for key in props)],
                     capture_output=True, text=True, check=False, timeout=10)
@@ -88,11 +89,17 @@ def _systemd_inactive(supervisor, *, runner):
             raise ValueError("invalid_supervisor_evidence")
         parsed[key] = value
     required = {
-        "LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead",
+        "LoadState": "loaded",
         "InvocationID": supervisor["invocation_id"], "KillMode": "control-group",
-        "TasksCurrent": "0", "MainPID": "0", "ControlPID": "0",
+        "Restart": "no", "TasksCurrent": "0", "MainPID": "0", "ControlPID": "0",
     }
     if any(parsed.get(key) != value for key, value in required.items()):
+        raise ValueError("direct_supervisor_not_inactive")
+    # SIGKILL commonly leaves a failed/failed unit rather than inactive/dead.
+    # Neither state proves anything alone: match the original invocation and
+    # demand an empty, non-restarting cgroup before reporting interruption.
+    if (parsed.get("ActiveState"), parsed.get("SubState")) not in (
+            ("inactive", "dead"), ("failed", "failed")):
         raise ValueError("direct_supervisor_not_inactive")
     # systemd may clear ControlGroup when the service becomes inactive; the
     # matching InvocationID and empty TasksCurrent then bind the evidence to

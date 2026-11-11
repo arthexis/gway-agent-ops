@@ -49,8 +49,10 @@ path is available only when acceptance captured **actual** process membership
 in a dedicated user systemd unit named `gway-agent-direct-<digest>.service`
 and the original systemd INVOCATION_ID. The command holds the existing
 submission and execution locks, reads but does not stop the unit, and
-requires matching InvocationID, KillMode=control-group, inactive/dead status,
-TasksCurrent=0, MainPID=0, ControlPID=0 and a matching or cleared ControlGroup.
+requires matching InvocationID, KillMode=control-group, Restart=no, either
+inactive/dead or failed/failed state, TasksCurrent=0, MainPID=0, ControlPID=0
+and a matching or cleared ControlGroup. SIGKILL can leave systemd in failed/
+failed; that is acceptable only with every other proof present.
 Only then may it enqueue an interrupted report; it never reruns Codex.
 
 Bare interactive/legacy direct invocations have no such provenance and **must
@@ -66,13 +68,17 @@ REF='arthexis/example#19'
 AT='2026-11-11T15:00:00Z'
 UNIT="$(python3 -c 'import hashlib,sys; from gway_agent_ops.dispatch import timestamp; x=sys.argv[1]+"\n"+timestamp(sys.argv[2]); print("gway-agent-direct-"+hashlib.sha256(x.encode()).hexdigest()[:32])' "$REF" "$AT")"
 systemd-run --user --wait --unit="$UNIT" --property=KillMode=control-group \
-  "$HOME/.local/bin/agent" issue "$REF" --at "$AT" --json
+  --property=Restart=no "$HOME/.local/bin/agent" issue "$REF" --at "$AT" --json
 ```
 
 This command is documentation only, not executed or activated here. The
 dedicated unit must remain inspectable by systemd for later recovery; an
 unloaded/garbage-collected unit cannot furnish the necessary identity proof.
-A privileged child escaping the service cgroup is outside this guarantee.
+Any child escaping into a different scope or cgroup (including same-user
+systemd-run) is outside this guarantee; an inactive original cgroup cannot
+prove those escaped processes have stopped. PRE-READY acceptance therefore
+requires a real disposable systemd/descendant test and a threat-model check
+that no detached Codex child can escape supervision.
 Unconfirmed systemd status and active execution locks also remain blocked.
 An unknown is-active result needs independent not-found/inactive evidence from
 systemd show; a bare unknown is never enough. No automatic resubmission or

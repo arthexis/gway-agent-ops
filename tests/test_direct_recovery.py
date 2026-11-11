@@ -43,7 +43,7 @@ class DirectRecoveryTests(unittest.TestCase):
     def evidence(self, **overrides):
         props = {
             "LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead",
-            "InvocationID": ID, "KillMode": "control-group",
+            "InvocationID": ID, "KillMode": "control-group", "Restart": "no",
             "TasksCurrent": "0", "MainPID": "0", "ControlPID": "0",
             "ControlGroup": self.cgroup,
         }
@@ -118,6 +118,30 @@ class DirectRecoveryTests(unittest.TestCase):
                 runner = Mock(return_value=subprocess.CompletedProcess([], 0, payload, ""))
                 with self.assertRaises(ValueError):
                     recover_direct(REF, AT, state_dir=self.root, runner=runner)
+                self.assertFalse((self.root / "outbox").exists())
+
+    def test_sigkill_failed_unit_with_empty_cgroup_can_reconcile(self):
+        self.accepted()
+        runner = self.evidence(ActiveState="failed", SubState="failed")
+        self.assertEqual(recover_direct(REF, AT, state_dir=self.root,
+                                        runner=runner)["state"], "interrupted")
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "interrupted")
+
+    def test_failed_unit_with_descendants_or_restart_policy_stays_blocked(self):
+        self.accepted()
+        for properties in (
+            {"ActiveState": "failed", "SubState": "failed", "TasksCurrent": "1"},
+            {"ActiveState": "failed", "SubState": "failed", "Restart": "on-failure"},
+            {"ActiveState": "failed", "SubState": "failed", "Restart": "always"},
+            {"ActiveState": "failed", "SubState": "failed", "InvocationID": "c" * 32},
+            {"ActiveState": "failed", "SubState": "failed", "KillMode": "process"},
+            {"ActiveState": "failed", "SubState": "dead"},
+        ):
+            with self.subTest(properties=properties):
+                with self.assertRaises(ValueError):
+                    recover_direct(REF, AT, state_dir=self.root,
+                                   runner=self.evidence(**properties))
+                self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
                 self.assertFalse((self.root / "outbox").exists())
 
     def test_restarted_invocation_or_reused_pid_cannot_recover(self):
