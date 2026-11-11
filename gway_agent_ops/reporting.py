@@ -218,7 +218,7 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
         if cursor.exists():
             previous = json.loads(cursor.read_text(encoding="utf-8"))
             after = previous.get("last") if type(previous) is dict else None
-            if type(after) is not str or not re.fullmatch(r"[0-9a-f]{64}\\.json", after):
+            if type(after) is not str or not re.fullmatch(r"[0-9a-f]{64}\.json", after):
                 raise ValueError("invalid report cursor")
         files = sorted(outbox.glob("*.json"))
         start = next((i for i, path in enumerate(files) if path.name > after), 0)
