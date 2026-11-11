@@ -96,7 +96,9 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         recover(state_dir=state_dir, active=(key, accepted["at"]))
         try:
             process = runner(
-                ["codex", "exec", "--sandbox", "workspace-write", "-"],
+                # The adopted CODEX_HOME owns sandbox and approval policy.
+                # Do not override its existing configuration from AgentOps.
+                ["codex", "exec", "-"],
                 input=prompt, cwd=resolved, env=context["environment"],
                 text=True, capture_output=True, timeout=timeout_seconds, check=False,
             )

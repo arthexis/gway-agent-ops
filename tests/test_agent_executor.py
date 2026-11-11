@@ -35,7 +35,10 @@ class ExecutionTests(unittest.TestCase):
         def runtime():
             home = self.root / "codex-home"
             home.mkdir(exist_ok=True)
-            (home / "config.toml").write_text('model = "test"')
+            (home / "config.toml").write_text(
+                'model = "test"\n'
+                'sandbox_mode = "danger-full-access"\n'
+                'approval_policy = "never"\n')
             return {"codex_home": str(home), "authentication_available": True,
                     "environment": {"CODEX_HOME": str(home), "PATH": "/usr/bin"}}
         result = execute("arthexis/example#19", at="2026-10-13T01:00:00Z",
@@ -52,7 +55,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result["comment_baseline"], 6)
         self.assertTrue(result["issue_revision"].startswith("sha256:"))
         argv, options = seen[0]
-        self.assertEqual(argv, ["codex", "exec", "--sandbox", "workspace-write", "-"])
+        self.assertEqual(argv, ["codex", "exec", "-"])
         self.assertEqual(options["cwd"], self.checkout)
         self.assertIn("Body", options["input"])
         self.assertNotIn("TOKEN-NEVER-PRINT", str(result))
@@ -67,6 +70,22 @@ class ExecutionTests(unittest.TestCase):
         with admission("arthexis/example#27", "2026-10-13T01:00:00Z",
                        state_dir=self.state):
             pass
+
+    def test_adopted_codex_config_remains_authoritative_and_unchanged(self):
+        seen = []
+        result, _ = self.call(seen=seen)
+        argv, options = seen[0]
+        self.assertEqual(argv, ["codex", "exec", "-"])
+        self.assertNotIn("--sandbox", argv)
+        self.assertNotIn("--ask-for-approval", argv)
+        self.assertNotIn("--config", argv)
+        self.assertEqual(options["env"]["CODEX_HOME"],
+                         str(self.root / "codex-home"))
+        self.assertEqual((self.root / "codex-home" / "config.toml").read_text(),
+                         'model = "test"\n'
+                         'sandbox_mode = "danger-full-access"\n'
+                         'approval_policy = "never"\n')
+        self.assertEqual(result["status"], "finished")
 
     def test_normal_nonzero_is_codex_failed_not_host_complete(self):
         seen = []
