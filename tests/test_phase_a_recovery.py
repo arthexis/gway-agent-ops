@@ -120,11 +120,10 @@ class PhaseARecoveryTests(unittest.TestCase):
             Mock(returncode=5, stdout=""),
             Mock(returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n"),
             Mock(returncode=3, stdout="unknown\n"),
-            Mock(returncode=0, stdout="LoadState=not-found\nActiveState=inactive\n"),
         ])
         self.assertEqual(release(REF, AT, state_dir=self.root, runner=collected)
                          ["state"], "released")
-        self.assertEqual(collected.call_count, 4)
+        self.assertEqual(collected.call_count, 3)
 
     def test_unaccepted_launch_release_does_not_claim_execution(self):
         self.submit(runner=Mock(return_value=Mock(returncode=1)))

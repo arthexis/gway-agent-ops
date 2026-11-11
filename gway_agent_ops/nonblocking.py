@@ -208,6 +208,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             # Stop first: a successful is-active check alone would race a pending start.
             stopped = runner(["systemctl", "--user", "stop", unit],
                              capture_output=True, text=True, check=False, timeout=10)
+            missing_verified = False
             if stopped.returncode != 0:
                 # --collect may have garbage-collected the transient unit.
                 # A failed stop is safe only when systemd explicitly says the
@@ -223,25 +224,27 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                         properties.get("LoadState") != "not-found" or
                         properties.get("ActiveState") != "inactive"):
                     raise ValueError("unit_stop_unconfirmed")
+                missing_verified = True
             checked = runner(["systemctl", "--user", "is-active", unit],
                              capture_output=True, text=True, check=False, timeout=10)
             state = checked.stdout.strip()
             if checked.returncode == 0:
                 raise ValueError("unit_inactive_unconfirmed")
             if state == "unknown":
-                # An unknown is-active response is not proof of inactivity.
-                # A collected transient unit is safe only when an independent
-                # systemd show confirms it absent *and* inactive.
-                metadata = runner(
-                    ["systemctl", "--user", "show", unit,
-                     "--property=LoadState", "--property=ActiveState"],
-                    capture_output=True, text=True, check=False, timeout=10)
-                properties = dict(
-                    line.split("=", 1) for line in metadata.stdout.splitlines()
-                    if "=" in line)
-                if (metadata.returncode != 0 or properties.get("LoadState") != "not-found"
-                        or properties.get("ActiveState") != "inactive"):
-                    raise ValueError("unit_inactive_unconfirmed")
+                # A collected transient unit can be absent after a verified
+                # failed stop. Otherwise require independent systemd evidence;
+                # a bare unknown must never imply inactivity.
+                if not missing_verified:
+                    metadata = runner(
+                        ["systemctl", "--user", "show", unit,
+                         "--property=LoadState", "--property=ActiveState"],
+                        capture_output=True, text=True, check=False, timeout=10)
+                    properties = dict(
+                        line.split("=", 1) for line in metadata.stdout.splitlines()
+                        if "=" in line)
+                    if (metadata.returncode != 0 or properties.get("LoadState") != "not-found"
+                            or properties.get("ActiveState") != "inactive"):
+                        raise ValueError("unit_inactive_unconfirmed")
             elif state not in ("inactive", "failed"):
                 raise ValueError("unit_inactive_unconfirmed")
             # With the worker stopped and the execution lock free, a previously
