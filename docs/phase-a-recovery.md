@@ -19,6 +19,14 @@ the existing service, Ansible or GWay Remote mechanism.
 
 ## At-most-once, durability and normal completion
 
+- The private adopted `CODEX_HOME` and its existing policy are passed to
+  `codex exec -` unchanged. AgentOps reconstructs `XDG_RUNTIME_DIR` only
+  if `/run/user/<current-uid>/bus` exists as a UNIX socket inside a
+  current-user-owned, private, non-symlink runtime directory. This restores
+  same-user `systemctl --user` connectivity for non-login administrative
+  contexts without changing node permissions, config files or service state.
+  No arbitrary caller-supplied bus path, DBus address or ambient tokens are
+  passed to Codex.
 - A request is fsynced under the existing locks before launching Codex. The
   frozen identity is \`(issue, normalized UTC timestamp)\`; a duplicate identity
   is never run twice, including after a restart.

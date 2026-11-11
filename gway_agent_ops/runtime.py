@@ -10,6 +10,25 @@ DEFAULT_ROOT = Path.home() / ".local/share/gway-agent-ops"
 PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "TERM", "TZ")
 
 
+def _same_user_runtime_dir(base: Path = Path("/run/user")) -> str | None:
+    """Discover only the current UID's private, real user-systemd bus.
+
+    This grants no privileges and never reads bus data. It avoids propagating
+    arbitrary caller-controlled XDG_RUNTIME_DIR to an administrative agent.
+    Missing or unsafe buses simply leave user systemd access unconfigured.
+    """
+    path = base / str(os.getuid())
+    try:
+        info = path.lstat()
+        bus = (path / "bus").lstat()
+    except OSError:
+        return None
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077 or not stat.S_ISSOCK(bus.st_mode)):
+        return None
+    return str(path)
+
+
 def _check_directory(path: Path, *, create: bool = False) -> None:
     if create:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -56,6 +75,12 @@ def runtime_context(*, root: Path | None = None, env: dict | None = None,
     safe = {name: original[name] for name in PASSTHROUGH if original.get(name)}
     safe["CODEX_HOME"] = str(codex)
     safe["HOME"] = str(Path.home())
+    # A trusted administrative agent may need to manage the existing
+    # same-user systemd services. Non-login providers often lack this variable
+    # even when the private user bus is already running.
+    runtime_dir = _same_user_runtime_dir()
+    if runtime_dir is not None:
+        safe["XDG_RUNTIME_DIR"] = runtime_dir
     return {"environment": safe, "codex_home": str(codex),
             "authentication_available": auth.is_file(),
             "isolation": "same-user-seed-reference" if seed else "environment-only"}
