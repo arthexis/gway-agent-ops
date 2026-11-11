@@ -27,7 +27,8 @@ class DispatchTests(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         from gway_agent_ops.dispatch import timestamp as normalize
         (folder / (_key(issue, normalize(at)) + ".json")).write_text(
-            json.dumps({"status": "finished", "exit_code": 0}))
+            json.dumps({"status": "finished", "exit_code": 0,
+                        "marker": "agent-dispatch:" + _key(issue, normalize(at))}))
 
     def test_duplicate_survives_new_call_and_changed_timestamp_runs(self):
         with admission(self.issue, self.at, state_dir=self.state):

@@ -77,7 +77,8 @@ class NonblockingTests(unittest.TestCase):
             "issue": REF, "at": normalized}) + "\n")
         (self.root / "delivered").mkdir()
         (self.root / "delivered" / (_key(REF, normalized) + ".json")).write_text(
-            json.dumps({"status": "finished", "exit_code": 0}))
+            json.dumps({"status": "finished", "exit_code": 0,
+                        "marker": "agent-dispatch:" + _key(REF, normalized)}))
         self.assertEqual(self.send("owner/repo#2")["state"], "requested")
 
     def test_release_requires_inactive_unit_and_preserves_identity(self):

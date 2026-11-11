@@ -123,6 +123,49 @@ class ReportingTests(unittest.TestCase):
             recover(state_dir=self.root)
         self.assertFalse((self.root / "outbox").exists())
 
+    def test_wrong_identity_report_cannot_free_admission_or_post(self):
+        from gway_agent_ops.admission_status import status
+        from gway_agent_ops.observation import observe
+        from gway_agent_ops.reporting import _key
+        self.root.mkdir(mode=0o700)
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": self.issue, "at": self.at}) + "\n")
+        enqueue(self.issue, self.at, state_dir=self.root, status="finished",
+                exit_code=0)
+        path = self.root / "outbox" / (_key(self.issue, self.at) + ".json")
+        wrong = json.loads(path.read_text())
+        wrong["issue"] = "arthexis/unrelated#99"
+        path.write_text(json.dumps(wrong))
+        with self.assertRaisesRegex(ValueError, "invalid report identity"):
+            observe(self.issue, self.at, state_dir=self.root)
+        with self.assertRaisesRegex(ValueError, "invalid report identity"):
+            enqueue(self.issue, self.at, state_dir=self.root, status="finished",
+                    exit_code=0)
+        with self.assertRaises(ValueError):
+            status(state_dir=self.root)
+        def must_not_send(*args, **kwargs):
+            self.fail("untrusted outbox entry was sent to GitHub")
+        self.assertEqual(flush(state_dir=self.root, runner=must_not_send),
+                         {"sent": 0, "pending": 1})
+        self.assertFalse(list((self.root / "delivered").glob("*.json")))
+
+    def test_corrupt_delivered_marker_does_not_reopen_slot(self):
+        from gway_agent_ops.admission_status import status
+        from gway_agent_ops.observation import observe
+        from gway_agent_ops.reporting import _key
+        self.root.mkdir(mode=0o700)
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": self.issue, "at": self.at}) + "\n")
+        delivered = self.root / "delivered"
+        delivered.mkdir()
+        path = delivered / (_key(self.issue, self.at) + ".json")
+        path.write_text(json.dumps({"status": "finished", "exit_code": 0,
+                                    "marker": "agent-dispatch:other"}))
+        with self.assertRaisesRegex(ValueError, "invalid report journal"):
+            observe(self.issue, self.at, state_dir=self.root)
+        with self.assertRaises(ValueError):
+            status(state_dir=self.root)
+
     def test_other_issue_same_timestamp_is_distinct(self):
         a = enqueue(self.issue, self.at, state_dir=self.root)
         b = enqueue("arthexis/other#20", self.at, state_dir=self.root)

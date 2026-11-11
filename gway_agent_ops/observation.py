@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 
 from .dispatch import DEFAULT_STATE, ISSUE, timestamp
-from .reporting import _key
+from .reporting import _key, _validate_report
 
 
 def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
@@ -21,7 +21,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
         raise ValueError("unsafe release path")
     if released.exists():
         record = json.loads(released.read_text(encoding="utf-8"))
-        if record.get("issue") != ref or record.get("at") != at:
+        if record.get("issue") != ref or record.get("at") != at or record.get("state") != "released":
             raise ValueError("invalid release journal")
         # Administrative release is not a claim of Codex success.
         delivery = {"delivery_attempted": False, "delivery_confirmed": False,
@@ -32,7 +32,9 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             if path.is_symlink():
                 raise ValueError("unsafe report path")
             if path.exists():
-                report = json.loads(path.read_text(encoding="utf-8"))
+                report = _validate_report(
+                    json.loads(path.read_text(encoding="utf-8")), ref, at,
+                    delivered=(folder == "delivered"))
                 delivery = {"delivery_attempted": (folder == "delivered"
                             or report.get("delivery_attempted", False)),
                             "delivery_confirmed": folder == "delivered",
@@ -67,7 +69,9 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             raise ValueError("unsafe report path")
         if path.exists():
             if folder == "delivered":
-                report = json.loads(path.read_text(encoding="utf-8"))
+                report = _validate_report(
+                    json.loads(path.read_text(encoding="utf-8")), ref, at,
+                    delivered=True)
                 state = report.get("status")
                 if state not in ("finished", "codex_failed", "interrupted"):
                     return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
@@ -80,7 +84,8 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                         "delivery_attempted": True, "delivery_confirmed": True,
                         "exit_code": report.get("exit_code"),
                         **_provenance(root, ref, at)}
-            report = json.loads(path.read_text(encoding="utf-8"))
+            report = _validate_report(
+                json.loads(path.read_text(encoding="utf-8")), ref, at)
             return {"issue": ref, "at": at, "state": report["status"],
                     "execution_terminal": True,
                     "admin_work_state": report.get("admin_work_state", "not_attested"),

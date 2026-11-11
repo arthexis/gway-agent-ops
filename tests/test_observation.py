@@ -26,7 +26,8 @@ class ObservationTests(unittest.TestCase):
             delivered = root / "delivered"
             delivered.mkdir()
             (delivered / outbox.name).write_text(json.dumps({
-                "status": "finished", "exit_code": 0, "marker": "test"}))
+                "status": "finished", "exit_code": 0,
+                "marker": "agent-dispatch:" + _key(issue, "2026-10-13T15:00:00.000000Z")}))
             outbox.unlink()
             observed = observe(issue, at, state_dir=root)
             self.assertEqual(observed["state"], "finished")

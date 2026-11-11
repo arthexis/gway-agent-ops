@@ -29,6 +29,11 @@ the existing service, Ansible or GWay Remote mechanism.
   \`finished\` or \`codex_failed\` report **before** releasing admission.
   A normal Codex return is enough to close *this invocation*, not to prove
   completion of any independent administrative effects.
+- Durable outbox and delivered receipts are accepted as terminal only when
+  the identity-bound filename, request identity, deduplication marker and
+  terminal status are consistent. A mismatched/partial report fails closed
+  in observation, reentrant enqueue and report delivery; it cannot unlock
+  admission or post comments to a different issue.
 - On subprocess timeout, ambiguous \`OSError\`, crash or failed report fsync,
   accepted remains unresolved, blocks the next issue and never fabricates a
   finished report. The operator must reconcile it explicitly. The legacy

@@ -144,7 +144,8 @@ class ControllerHardeningTests(unittest.TestCase):
         folder = self.root / "delivered"
         folder.mkdir()
         path = folder / (_key(ref, timestamp(at)) + ".json")
-        path.write_text(json.dumps({"status": "finished", "exit_code": 0}))
+        path.write_text(json.dumps({"status": "finished", "exit_code": 0,
+                                    "marker": "agent-dispatch:" + _key(ref, timestamp(at))}))
         self.assertTrue(status(state_dir=self.root)["available"])
         with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                        state_dir=self.root):

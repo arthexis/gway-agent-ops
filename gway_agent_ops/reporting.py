@@ -41,6 +41,27 @@ def _write(path: Path, data: dict) -> None:
             os.unlink(temporary)
 
 
+def _validate_report(record: dict, issue: str, at: str, *,
+                     delivered: bool = False) -> dict:
+    """Fail closed if a report or receipt cannot be bound to its request.
+
+    Delivered receipts intentionally contain no issue/at; their durable
+    idempotency marker binds them to the content-addressed filename instead.
+    Older valid receipts may omit admin_work_state (treated as not_attested).
+    """
+    marker = "agent-dispatch:" + _key(issue, at)
+    if (type(record) is not dict or record.get("marker") != marker
+            or record.get("status") not in ("finished", "codex_failed", "interrupted")
+            or ("admin_work_state" in record
+                and record["admin_work_state"] != "not_attested")):
+        raise ValueError("invalid report journal")
+    if not delivered and (record.get("issue") != issue or record.get("at") != at):
+        raise ValueError("invalid report identity")
+    if "exit_code" in record and record["exit_code"] is not None and type(record["exit_code"]) is not int:
+        raise ValueError("invalid report exit code")
+    return record
+
+
 def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
             status: str = "interrupted", exit_code: int | None = None,
             audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None,
@@ -55,7 +76,10 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     if path.is_symlink():
         raise ValueError("unsafe report path")
     if path.exists():
-        return json.loads(path.read_text())
+        # A partial or stale record must not substitute for this invocation's
+        # durable process result; observe and admission use the same contract.
+        return _validate_report(json.loads(path.read_text(encoding="utf-8")),
+                                issue, at)
     if status not in ("interrupted", "finished", "codex_failed"):
         raise ValueError("invalid reporting status")
     # Terminal applies to Codex only, not independent host effects.
@@ -243,6 +267,11 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
                 continue
             try:
                 record = json.loads(path.read_text(encoding="utf-8"))
+                if type(record) is not dict or type(record.get("issue")) is not str or type(record.get("at")) is not str:
+                    raise ValueError("invalid report journal")
+                _validate_report(record, record["issue"], record["at"])
+                if path.name != _key(record["issue"], record["at"]) + ".json":
+                    raise ValueError("invalid report filename")
                 if not record.get("delivery_attempted"):
                     record["delivery_attempted"] = True
                     _write(path, record)
