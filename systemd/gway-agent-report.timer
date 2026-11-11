@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry AgentOps pending GitHub reports every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+RandomizedDelaySec=15
+Unit=gway-agent-report.service
+
+[Install]
+WantedBy=timers.target

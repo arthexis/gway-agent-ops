@@ -22,7 +22,15 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   terminality, and delivery confirmation. Success with missing/invalid findings
   is not verified completion.
 - agent report retries only durable GitHub comments using the existing marker
-  for deduplication. It never reruns Codex.
+  for deduplication. It never reruns Codex. Its per-user report.lock
+  serializes the GitHub marker-check-and-post phase. A tick processes at
+  most four reports within an 80-second soft deadline, with each GitHub API
+  call bounded by its remaining time. Failed and deferred items remain queued.
+- An opt-in user systemd oneshot + calendar timer is provided in
+  systemd/gway-agent-report.{service,timer}; no installation, enablement,
+  or service restart is performed by this PR. The 120-second service timeout
+  is larger than the outbox soft deadline plus one bounded GitHub API call.
+  CI only inspects these declarative units.
 
 ## Unresolved safety boundaries — keep this PR Draft
 
@@ -50,7 +58,9 @@ separately invoked report delivery.
    locks, uncertain unit stop, explicit stopped-unit reconciliation, retained
    report, nonduplicated GitHub delivery, findings metadata and direct orphan.
 2. Design a guarded, evidence-based reconciliation for direct CLI orphans.
-3. Add supervised outbox-only retry with bounded backoff, without Codex replay.
+3. Independently authorize publication and enabling of the provided
+   outbox-only systemd service/timer on gway-001; verify real retry behavior,
+   concurrency and journald evidence without Codex replay.
 4. Inspect deployed SHA, user systemd bus, pending requests/outbox on gway-001
    in read-only mode; authorize any disposable live dispatch separately.
 5. Coordinate pinned CLI/MCP revision and provider timeout with GWay Remote

@@ -1,11 +1,14 @@
 """Durable GitHub reporting outbox; never repeats agent execution."""
 from __future__ import annotations
+import fcntl
 import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from .dispatch import DEFAULT_STATE, _private_directory
@@ -90,22 +93,29 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     return record
 
 
-def _api(args: list[str], *, runner=subprocess.run):
+def _api(args: list[str], *, runner=subprocess.run, timeout=25):
     result = runner(["gh", "api", *args], capture_output=True, text=True,
-                    timeout=25, check=False)
+                    timeout=timeout, check=False)
     if result.returncode:
         raise RuntimeError("github_reporting_unavailable")
     return json.loads(result.stdout)
 
 
-def deliver(record: dict, *, runner=subprocess.run) -> None:
+def deliver(record: dict, *, runner=subprocess.run, deadline=None,
+            clock=time.monotonic) -> None:
     """Idempotent against successfully posted but locally unacknowledged reports."""
     repository, number = record["issue"].rsplit("#", 1)
     endpoint = f"repos/{repository}/issues/{number}/comments"
+    def bounded_api(args):
+        remaining = 25 if deadline is None else deadline - clock()
+        if remaining <= 0:
+            raise RuntimeError("report_time_budget_exceeded")
+        return _api(args, runner=runner, timeout=min(25, remaining))
+
     # gh 2.23 does not support --slurp. Query bounded pages explicitly,
     # failing closed rather than posting when any page cannot be inspected.
     for page in range(1, 1001):
-        rows = _api([f"{endpoint}?per_page=100&page={page}"], runner=runner)
+        rows = bounded_api([f"{endpoint}?per_page=100&page={page}"])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise RuntimeError("github_reporting_invalid_response")
         if any(record["marker"] in str(row.get("body", "")) for row in rows):
@@ -156,39 +166,70 @@ def deliver(record: dict, *, runner=subprocess.run) -> None:
             message = (f"Agent read-only audit {record['at']}: {state}; "
                        f"execution={record['status']}. No validated PASS evidence."
                        f"\n<!-- {record['marker']} -->")
-    _api([endpoint, "-f", f"body={message}"], runner=runner)
+    bounded_api([endpoint, "-f", f"body={message}"])
 
 
-def flush(*, state_dir: Path | None = None, runner=subprocess.run) -> dict:
-    """Retry queued comments only. Failures remain durable for later invocation."""
+def flush(*, state_dir: Path | None = None, runner=subprocess.run,
+          max_reports=4, budget_seconds=80, clock=time.monotonic) -> dict:
+    """Serialize bounded outbox-only GitHub delivery across concurrent callers.
+
+    A timer may call `agent report` repeatedly. It must never invoke Codex or
+    re-submit an issue. Unsent items stay on disk; a crash after posting is
+    reconciled by the existing remote marker check on the next tick.
+    """
+    if type(max_reports) is not int or not 1 <= max_reports <= 16:
+        raise ValueError("invalid report batch size")
+    if type(budget_seconds) not in (int, float) or not 0 < budget_seconds <= 300:
+        raise ValueError("invalid report time budget")
     root = Path(state_dir or DEFAULT_STATE)
     outbox = root / "outbox"
+    if outbox.is_symlink():
+        raise ValueError("unsafe outbox path")
     if not outbox.exists():
         return {"sent": 0, "pending": 0}
-    sent = 0
-    pending = 0
-    delivered = root / "delivered"
-    _private_directory(delivered)
-    for path in sorted(outbox.glob("*.json")):
-        if path.is_symlink():
-            pending += 1
-            continue
+    _private_directory(root)
+    _private_directory(outbox)
+    gate = root / "report.lock"
+    if gate.is_symlink():
+        raise ValueError("unsafe report lock")
+    fd = os.open(gate, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("unsafe report lock")
         try:
-            record = json.loads(path.read_text())
-            if not record.get("delivery_attempted"):
-                record["delivery_attempted"] = True
-                _write(path, record)
-            deliver(record, runner=runner)
-            _write(delivered / path.name, {"marker": record["marker"], "status": record["status"], "exit_code": record.get("exit_code"),
-                         "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
-                         "receipt": record.get("receipt"),
-                         "findings_state": record.get("findings_state")})
-            path.unlink()
-            sent += 1
-        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
-            pending += 1
-    return {"sent": sent, "pending": pending}
-
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Another agent report is processing this outbox; the next timer
+            # tick will retry. Never race the GitHub marker-check/Post pair.
+            return {"sent": 0, "pending": sum(1 for _ in outbox.glob("*.json"))}
+        deadline = clock() + budget_seconds
+        sent = 0
+        pending = 0
+        delivered = root / "delivered"
+        _private_directory(delivered)
+        for index, path in enumerate(sorted(outbox.glob("*.json"))):
+            if index >= max_reports or clock() >= deadline or path.is_symlink():
+                pending += 1
+                continue
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                if not record.get("delivery_attempted"):
+                    record["delivery_attempted"] = True
+                    _write(path, record)
+                deliver(record, runner=runner, deadline=deadline, clock=clock)
+                _write(delivered / path.name, {"marker": record["marker"], "status": record["status"],
+                             "exit_code": record.get("exit_code"),
+                             "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
+                             "receipt": record.get("receipt"),
+                             "findings_state": record.get("findings_state")})
+                path.unlink()
+                sent += 1
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                pending += 1
+        return {"sent": sent, "pending": pending}
+    finally:
+        os.close(fd)
 
 def recover(*, state_dir: Path | None = None, active: tuple[str, str] | None = None) -> int:
     """Reconcile accepted invocations not yet given a reporting record.
