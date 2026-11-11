@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 
 from gway_agent_ops.executor import execute, ExecutionError
-from gway_agent_ops.dispatch import Duplicate
+from gway_agent_ops.dispatch import Duplicate, Busy, admission, timestamp
+from gway_agent_ops.observation import observe
+from gway_agent_ops.admission_status import status
 
 
 class ExecutionTests(unittest.TestCase):
@@ -23,6 +25,7 @@ class ExecutionTests(unittest.TestCase):
 
     def call(self, **kwargs):
         seen = kwargs.pop("seen", [])
+        override = kwargs.pop("runner_override", None)
         def runner(argv, **options):
             seen.append((argv, options))
             return subprocess.CompletedProcess(argv, 0, "TOKEN-NEVER-PRINT", "")
@@ -38,7 +41,8 @@ class ExecutionTests(unittest.TestCase):
         result = execute("arthexis/example#19", at="2026-10-13T01:00:00Z",
                          allowed_repositories=("arthexis/example",),
                          workspace_root=self.root, state_dir=self.state,
-                         resolver=resolver, runner=runner, runtime=runtime, **kwargs)
+                         resolver=resolver, runner=override or runner,
+                         runtime=runtime, **kwargs)
         return result, seen
 
     def test_exec_args_lock_and_metadata(self):
@@ -53,6 +57,31 @@ class ExecutionTests(unittest.TestCase):
         self.assertNotIn("TOKEN-NEVER-PRINT", str(result))
         with self.assertRaises(Duplicate):
             self.call()
+
+    def test_timed_out_codex_cannot_fabricate_terminal_or_free_slot(self):
+        def timeout_runner(args, **kwargs):
+            raise subprocess.TimeoutExpired(args, 1)
+        with self.assertRaisesRegex(ExecutionError, "codex_timeout"):
+            self.call(runner_override=timeout_runner)
+        key, at = "arthexis/example#19", "2026-10-13T01:00:00Z"
+        self.assertEqual(observe(key, at, state_dir=self.state)["state"], "accepted")
+        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertFalse((self.state / "outbox").exists())
+        self.assertFalse((self.state / "delivered").exists())
+        with self.assertRaises(Busy):
+            with admission("arthexis/example#27", timestamp(at),
+                           state_dir=self.state):
+                pass
+
+    def test_uncertain_spawn_error_preserves_accepted_identity(self):
+        def broken_runner(args, **kwargs):
+            raise OSError("synthetic exec failure")
+        with self.assertRaisesRegex(ExecutionError, "codex_unavailable"):
+            self.call(runner_override=broken_runner)
+        self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                 state_dir=self.state)["state"], "accepted")
+        self.assertFalse((self.state / "outbox").exists())
+        self.assertFalse(status(state_dir=self.state)["available"])
 
     def test_no_checkout_prevents_dispatch(self):
         (self.checkout / ".git").rmdir()

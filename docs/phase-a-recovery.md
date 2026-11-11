@@ -11,7 +11,11 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   A crash before the update leaves requested intentionally ambiguous.
 - The same (issue, UTC timestamp) cannot launch twice. Other issues remain busy
   while a request is unresolved. Neither a timeout nor a reconnect authorizes
-  a new timestamp or a retry.
+  a new timestamp or a retry. The direct executor also leaves a timed-out or
+  OSError-uncertain Codex invocation **accepted and unresolved**: Python's
+  subprocess timeout kills only its immediate child and gives no durable
+  descendant-termination witness. It does not enqueue an "interrupted"
+  terminal report in these ambiguous cases.
 - The existing agent release REF --at UTC is an explicit *operator action*.
   It requires an unlocked execution slot and a confirmed systemd stop/inactivity
   **only for requests with no matching accepted execution**. Once the journal
@@ -159,6 +163,19 @@ a new approval registry or by observing a historical PID after a crash.
    disposable lab, test the user-bus and cgroup boundary with a synthetic
    child that attempts to migrate scopes; do not use live Codex.
 
+An isolated Linux subprocess test proves the *narrower* negative property that
+a Python worker's timed-out parent may exit while a grandchild in another
+process session remains alive. This is not a demonstration of systemd cgroup
+escape, nor a positive kernel containment certification. The remaining
+required positive acceptance includes a real disposable user systemd test of
+the proposed boundary, with an intentionally adversarial same-user child
+attempting `systemd-run --user --scope`, cgroup migration and detached
+processes. The trusted supervisor must disallow such migration (or attest
+an equivalent kernel-enforced boundary) before enabling recovery. Merely
+observing a process tree or matching an InvocationID is insufficient.
+
 No kernel/user/permission changes, service installation or runtime deployment
 are included in this PR. Until the boundary is proved, both accepted-orphan
-recovery interfaces remain intentionally unavailable.
+recovery interfaces remain intentionally unavailable. Normal Codex return
+also lacks proof that no detached descendants survive: review the positive
+result-reporting path before marking the whole feature Ready.

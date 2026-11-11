@@ -101,10 +101,15 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
                 text=True, capture_output=True, timeout=timeout_seconds, check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            enqueue(key, accepted["at"], state_dir=state_dir)
+            # subprocess.run kills and waits for the immediate child on a
+            # timeout, but cannot prove all grandchildren terminated (a child
+            # can have started a different process group or systemd scope).
+            # Keep this accepted identity unresolved rather than creating a
+            # fabricated terminal "interrupted" report and freeing admission.
             raise ExecutionError("codex_timeout") from exc
         except OSError as exc:
-            enqueue(key, accepted["at"], state_dir=state_dir)
+            # Spawn failure is not a durable proof of absent descendants:
+            # never turn ambiguous execution into a terminal delivery record.
             raise ExecutionError("codex_unavailable") from exc
         findings = parse_findings(process.stdout) if process.returncode == 0 else None
         enqueue(key, accepted["at"], state_dir=state_dir,
