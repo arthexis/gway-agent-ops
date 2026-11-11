@@ -42,8 +42,10 @@ class ObservationTests(unittest.TestCase):
                 json.dumps({"issue": issue, "at": at}) + "\n")
             enqueue(issue, at, state_dir=root, status="finished", exit_code=0,
                     findings_state="validated",
-                    findings={"summary": "Done", "findings": ["Checked"],
-                              "evidence": ["Offline fixture"], "limitations": "None"})
+                    findings={"summary": "The offline observation test completed.",
+                              "findings": ["Checked persistence and recovery."],
+                              "evidence": ["Synthetic durable receipt fixture."],
+                              "limitations": "Only synthetic data inspected."})
             key = _key(issue, at) + ".json"
             delivered = root / "delivered"
             delivered.mkdir()
