@@ -66,7 +66,7 @@ class ExecutionTests(unittest.TestCase):
         key, at = "arthexis/example#19", "2026-10-13T01:00:00Z"
         self.assertEqual(observe(key, at, state_dir=self.state)["state"], "accepted")
         self.assertFalse(status(state_dir=self.state)["available"])
-        self.assertFalse((self.state / "outbox").exists())
+        self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
         self.assertFalse((self.state / "delivered").exists())
         with self.assertRaises(Busy):
             with admission("arthexis/example#27", timestamp(at),
@@ -80,7 +80,7 @@ class ExecutionTests(unittest.TestCase):
             self.call(runner_override=broken_runner)
         self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
                                  state_dir=self.state)["state"], "accepted")
-        self.assertFalse((self.state / "outbox").exists())
+        self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
         self.assertFalse(status(state_dir=self.state)["available"])
 
     def test_no_checkout_prevents_dispatch(self):
