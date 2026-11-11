@@ -66,10 +66,10 @@ class ObservationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ledger = root / "accepted.jsonl"
-            for entry in ("[]\\n", "null\\n", '{"issue":123,"at":"x"}\\n',
-                          '{"issue":"arthexis/example#3","at":"2026-10-13T15:00:00.000000Z"}\\n[]\\n'):
+            for entry in ("[]\n", "null\n", '{"issue":123,"at":"x"}\n',
+                          '{"issue":"arthexis/example#3","at":"2026-10-13T15:00:00.000000Z"}\n[]\n'):
                 with self.subTest(entry=entry):
-                    ledger.write_text(entry.replace("\\\\n", "\\n"))
+                    ledger.write_text(entry)
                     with self.assertRaisesRegex(ValueError, "invalid acceptance journal"):
                         observe(issue, at, state_dir=root)
 
