@@ -13,11 +13,13 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   while a request is unresolved. Neither a timeout nor a reconnect authorizes
   a new timestamp or a retry.
 - The existing agent release REF --at UTC is an explicit *operator action*.
-  It requires an unlocked execution slot and confirmed systemd stop/inactivity.
-  When an accepted invocation has no terminal report, it durably enqueues an
-  interrupted report **before** marking the slot released. Unaccepted requests
-  become request_terminal with execution_terminal=false; no Codex result is
-  invented.
+  It requires an unlocked execution slot and a confirmed systemd stop/inactivity
+  **only for requests with no matching accepted execution**. Once the journal
+  contains an accepted invocation without a terminal report, the command
+  fails closed with execution_containment_unverified before stopping the unit:
+  a free flock and empty original cgroup cannot disprove escaped descendants.
+  A never-accepted request may become request_terminal with
+  execution_terminal=false; no Codex result is invented.
 - agent observe now exposes findings_state independently from exit code,
   terminality, and delivery confirmation. Success with missing/invalid findings
   is not verified completion. If the process crashed after persisting delivered/
@@ -44,6 +46,13 @@ status, submit, or report: without proof of an inactive worker it could
 misclassify a still-running task as interrupted.
 
 The explicit release operation requires a systemd-backed request marker.
+The same process-family containment requirement now applies to BOTH
+`agent release` and `agent recover-direct`: matched accepted orphans are
+never promoted to a terminal state from stale systemd metadata alone.
+`agent release` intentionally does not stop a matched accepted orphan
+without separately verified containment. This is an admission safety stop,
+not a replacement for an operator-controlled service stop or live investigation.
+
 For direct CLI execution, a new explicit `agent recover-direct REF --at UTC`
 path is available only when acceptance captured **actual** process membership
 in a dedicated user systemd unit named `gway-agent-direct-<digest>.service`
@@ -97,15 +106,19 @@ systemd show; a bare unknown is never enough. No automatic resubmission or
 optimistic status promotion is allowed.
 
 A confirmed systemd stop does not prove whether Codex completed its intended
-changes before the interruption. The report says interrupted, never finished,
-and never automatically closes, merges, or updates a GitHub issue beyond a
-separately invoked report delivery.
+changes before interruption, or whether all descendants ended. Neither
+recovery path fabricates an interrupted or finished report while containment
+remains unverified. A normal report of finished Codex work also does not
+establish that detached subprocesses stopped: that is a separate
+post-execution acceptance boundary. No recovery operation closes, merges,
+or updates a GitHub issue.
 
 ## Acceptance needed before Ready
 
 1. CI: offline tests for uncertainty, idempotency, busy admission, running
-   locks, uncertain unit stop, explicit stopped-unit reconciliation, retained
-   report, nonduplicated GitHub delivery, findings metadata and direct orphan.
+   locks, uncertain unit stop, explicit unaccepted-request cancellation,
+   accepted orphan refusal, retained report, nonduplicated GitHub delivery,
+   findings metadata and direct orphan.
 2. Design and independently validate a non-escapable worker containment
    boundary, then test real systemd direct-CLI recovery in a disposable
    environment. Until then even fully matching unit metadata is insufficient
@@ -120,3 +133,32 @@ separately invoked report delivery.
    without introducing a second registry or admission authority.
 
 No merge, deployment or production action is authorized by this Draft.
+
+## Minimal containment contract (design only; not deployed)
+
+A reliable automated admission release needs a boundary established **before**
+the worker is started, by the existing node-owned executor and systemd, not by
+a new approval registry or by observing a historical PID after a crash.
+
+1. **Execution lifetime:** the trusted executor creates one identity-bound
+   systemd unit per accepted request, keeps all Codex descendants in a
+   non-delegated execution group, and disables service restart.
+2. **No scope escape:** either the runtime prevents same-user access to the
+   user systemd bus/other cgroup-migration paths, or an independently verifiable
+   confined execution identity is used. Merely setting KillMode=control-group,
+   Restart=no, NoNewPrivileges=yes or checking TasksCurrent=0 is insufficient.
+   Do not assume user-bus isolation without testing the actual runtime.
+3. **Terminal witness:** after a crash, the trusted supervisor must prove the
+   original invocation identity, empty cgroup **and the containment invariant**
+   using evidence independent of Codex; otherwise preserve the durable
+   accepted reservation. PID/start time alone cannot prove ancestry after
+   PID reuse, and a detached child can survive unit termination.
+4. **Offline acceptance:** simulate original-cgroup-empty/escaped-scope-live,
+   new InvocationID, restart policy, SIGKILL, corrupt journals, missing units,
+   and races while maintaining at-most-once. In a separately authorized
+   disposable lab, test the user-bus and cgroup boundary with a synthetic
+   child that attempts to migrate scopes; do not use live Codex.
+
+No kernel/user/permission changes, service installation or runtime deployment
+are included in this PR. Until the boundary is proved, both accepted-orphan
+recovery interfaces remain intentionally unavailable.
