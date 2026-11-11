@@ -41,7 +41,35 @@ status, submit, or report: without proof of an inactive worker it could
 misclassify a still-running task as interrupted.
 
 The explicit release operation requires a systemd-backed request marker.
-Direct CLI invocations with no request marker remain blocked after a crash.
+For direct CLI execution, a new explicit `agent recover-direct REF --at UTC`
+path is available only when acceptance captured **actual** process membership
+in a dedicated user systemd unit named `gway-agent-direct-<digest>.service`
+and the original systemd INVOCATION_ID. The command holds the existing
+submission and execution locks, reads but does not stop the unit, and
+requires matching InvocationID, KillMode=control-group, inactive/dead status,
+TasksCurrent=0, MainPID=0, ControlPID=0 and a matching or cleared ControlGroup.
+Only then may it enqueue an interrupted report; it never reruns Codex.
+
+Bare interactive/legacy direct invocations have no such provenance and **must
+remain blocked**, even when a PID is absent. A collected unit without
+InvocationID evidence also remains blocked; PID reuse, uncertain descendants
+and daemon restarts are not acceptable grounds for release. To make future
+direct invocations recoverable, start `agent issue REF --at UTC` under a
+dedicated **uncollected** user systemd service using the derived identity
+below, with KillMode=control-group (no new daemon or provider registry):
+
+```sh
+REF='arthexis/example#19'
+AT='2026-11-11T15:00:00Z'
+UNIT="$(python3 -c 'import hashlib,sys; from gway_agent_ops.dispatch import timestamp; x=sys.argv[1]+"\n"+timestamp(sys.argv[2]); print("gway-agent-direct-"+hashlib.sha256(x.encode()).hexdigest()[:32])' "$REF" "$AT")"
+systemd-run --user --wait --unit="$UNIT" --property=KillMode=control-group \
+  "$HOME/.local/bin/agent" issue "$REF" --at "$AT" --json
+```
+
+This command is documentation only, not executed or activated here. The
+dedicated unit must remain inspectable by systemd for later recovery; an
+unloaded/garbage-collected unit cannot furnish the necessary identity proof.
+A privileged child escaping the service cgroup is outside this guarantee.
 Unconfirmed systemd status and active execution locks also remain blocked.
 An unknown is-active result needs independent not-found/inactive evidence from
 systemd show; a bare unknown is never enough. No automatic resubmission or
@@ -57,7 +85,9 @@ separately invoked report delivery.
 1. CI: offline tests for uncertainty, idempotency, busy admission, running
    locks, uncertain unit stop, explicit stopped-unit reconciliation, retained
    report, nonduplicated GitHub delivery, findings metadata and direct orphan.
-2. Design a guarded, evidence-based reconciliation for direct CLI orphans.
+2. Verify direct CLI supervised recovery in a disposable user systemd
+   environment, including retained InvocationID and no descendant processes;
+   legacy unsupervised invocations remain blocked.
 3. Independently authorize publication and enabling of the provided
    outbox-only systemd service/timer on gway-001; verify real retry behavior,
    concurrency and journald evidence without Codex replay.

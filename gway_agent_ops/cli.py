@@ -55,6 +55,11 @@ def build_parser():
     release_parser.add_argument("ref")
     release_parser.add_argument("--at", required=True)
     release_parser.add_argument("--json", action="store_true")
+    recover_parser = sub.add_parser("recover-direct",
+                                   help="Reconcile a crashed CLI worker only with verified systemd evidence")
+    recover_parser.add_argument("ref")
+    recover_parser.add_argument("--at", required=True)
+    recover_parser.add_argument("--json", action="store_true")
     preview_parser = sub.add_parser("preview", help="Read the trusted issue execution prompt without dispatch")
     preview_parser.add_argument("ref")
     preview_parser.add_argument("--json", action="store_true")
@@ -292,6 +297,18 @@ def main(argv=None):
                 "code": "release_unavailable", "message": "Cannot safely release request"}), 1
         print(json_line(result) if args.json else
               (result["data"]["state"] if code == 0 else "Release unavailable"))
+        return code
+    if args.command == "recover-direct":
+        from .direct_recovery import recover_direct
+        try:
+            data = recover_direct(args.ref, args.at)
+            result, code = envelope("recover-direct", "ok", data=data), 0
+        except (ValueError, OSError, RuntimeError):
+            result, code = envelope("recover-direct", "error", error={
+                "code": "direct_recovery_unavailable",
+                "message": "No independently verified inactive direct worker"}), 1
+        print(json_line(result) if args.json else
+              (result["data"]["state"] if code == 0 else "Direct recovery unavailable"))
         return code
     if args.command == "preview":
         from .executor import preview, ExecutionError
