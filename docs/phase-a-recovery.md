@@ -52,8 +52,19 @@ submission and execution locks, reads but does not stop the unit, and
 requires matching InvocationID, KillMode=control-group, Restart=no, either
 inactive/dead or failed/failed state, TasksCurrent=0, MainPID=0, ControlPID=0
 and a matching or cleared ControlGroup. SIGKILL can leave systemd in failed/
-failed; that is acceptable only with every other proof present.
-Only then may it enqueue an interrupted report; it never reruns Codex.
+failed; this combination proves only that the **original** unit is inactive.
+
+**PRE-READY safety correction:** these necessary checks cannot prove that all
+process descendants are gone. An executable running under the same user may
+request a new scope from the user systemd manager; after its original worker
+dies, the escaped process can continue outside the original cgroup. Even
+Restart=no, KillMode=control-group, InvocationID and an empty TasksCurrent
+cannot rule it out. Therefore `recover-direct` still validates the journal,
+locks and systemd evidence, but returns `direct_containment_unverified` and
+does **not** enqueue a terminal report or free admission, even if every unit
+check passes. This fail-closed behavior is intentional until a verifiable,
+non-escapable execution-containment contract is established. No new authority,
+permission registry or production user is introduced in this Draft.
 
 Bare interactive/legacy direct invocations have no such provenance and **must
 remain blocked**, even when a PID is absent. A collected unit without
@@ -71,14 +82,15 @@ systemd-run --user --wait --unit="$UNIT" --property=KillMode=control-group \
   --property=Restart=no "$HOME/.local/bin/agent" issue "$REF" --at "$AT" --json
 ```
 
-This command is documentation only, not executed or activated here. The
+This command is a diagnostic example only; it is not executed or activated
+here and **does not authorize or enable automatic direct-CLI recovery**. The
 dedicated unit must remain inspectable by systemd for later recovery; an
 unloaded/garbage-collected unit cannot furnish the necessary identity proof.
-Any child escaping into a different scope or cgroup (including same-user
-systemd-run) is outside this guarantee; an inactive original cgroup cannot
-prove those escaped processes have stopped. PRE-READY acceptance therefore
-requires a real disposable systemd/descendant test and a threat-model check
-that no detached Codex child can escape supervision.
+A synthetic offline escaped-child case now asserts fail-closed behavior with
+the original unit reporting inactive and empty. The test is **not** a live
+systemd proof. PRE-READY still requires an independently verifiable
+containment/descendant contract (and disposable systemd integration tests)
+before allowing direct-CLI orphan release.
 Unconfirmed systemd status and active execution locks also remain blocked.
 An unknown is-active result needs independent not-found/inactive evidence from
 systemd show; a bare unknown is never enough. No automatic resubmission or
@@ -94,9 +106,11 @@ separately invoked report delivery.
 1. CI: offline tests for uncertainty, idempotency, busy admission, running
    locks, uncertain unit stop, explicit stopped-unit reconciliation, retained
    report, nonduplicated GitHub delivery, findings metadata and direct orphan.
-2. Verify direct CLI supervised recovery in a disposable user systemd
-   environment, including retained InvocationID and no descendant processes;
-   legacy unsupervised invocations remain blocked.
+2. Design and independently validate a non-escapable worker containment
+   boundary, then test real systemd direct-CLI recovery in a disposable
+   environment. Until then even fully matching unit metadata is insufficient
+   to release direct-CLI orphan admission. Unsupervised legacy calls remain
+   blocked. Do not assume TasksCurrent=0 proves descendant termination.
 3. Independently authorize publication and enabling of the provided
    outbox-only systemd service/timer on gway-001; verify real retry behavior,
    concurrency and journald evidence without Codex replay.
