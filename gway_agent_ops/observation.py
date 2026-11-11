@@ -25,7 +25,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             raise ValueError("invalid release journal")
         # Administrative release is not a claim of Codex success.
         delivery = {"delivery_attempted": False, "delivery_confirmed": False,
-                    "findings_state": None}
+                    "execution_terminal": False, "findings_state": None}
         key = _key(ref, at) + ".json"
         for folder in ("delivered", "outbox"):
             path = root / folder / key
@@ -36,10 +36,11 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 delivery = {"delivery_attempted": (folder == "delivered"
                             or report.get("delivery_attempted", False)),
                             "delivery_confirmed": folder == "delivered",
+                            "execution_terminal": True,
                             "findings_state": report.get("findings_state")}
                 break
         return {"issue": ref, "at": at, "state": "released",
-                "execution_terminal": True, **delivery, **_provenance(root, ref, at)}
+                "request_terminal": True, **delivery, **_provenance(root, ref, at)}
     ledger = root / "accepted.jsonl"
     if not ledger.exists():
         return _pending_request(root, ref, at)

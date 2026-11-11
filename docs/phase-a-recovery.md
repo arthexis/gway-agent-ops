@@ -16,7 +16,8 @@ All new tests use isolated directories and mocked systemd/GitHub interfaces.
   It requires an unlocked execution slot and confirmed systemd stop/inactivity.
   When an accepted invocation has no terminal report, it durably enqueues an
   interrupted report **before** marking the slot released. Unaccepted requests
-  are released without inventing a Codex execution result.
+  become request_terminal with execution_terminal=false; no Codex result is
+  invented.
 - agent observe now exposes findings_state independently from exit code,
   terminality, and delivery confirmation. Success with missing/invalid findings
   is not verified completion.

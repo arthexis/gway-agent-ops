@@ -106,7 +106,9 @@ class PhaseARecoveryTests(unittest.TestCase):
         self.assertEqual(release(REF, AT, state_dir=self.root, runner=self.stopped_unit())
                          ["state"], "released")
         self.assertFalse((self.root / "outbox").exists())
-        self.assertTrue(observe(REF, AT, state_dir=self.root)["execution_terminal"])
+        observed = observe(REF, AT, state_dir=self.root)
+        self.assertTrue(observed["request_terminal"])
+        self.assertFalse(observed["execution_terminal"])
 
     def test_active_execution_lock_prevents_release(self):
         self.submit()
