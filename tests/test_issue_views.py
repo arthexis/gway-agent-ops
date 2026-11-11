@@ -74,7 +74,9 @@ class IssueProjectionTests(unittest.TestCase):
         self.assertEqual(attended[0]["url"], "https://github.com/arthexis/example/issues/12")
         (self.state / "delivered").mkdir()
         (self.state / "delivered" / (_key(self.repo + "#12", "2026-10-13T01:00:00.000000Z") + ".json")).write_text(
-            json.dumps({"status": "finished", "exit_code": 0}))
+            json.dumps({"status": "finished", "exit_code": 0,
+                        "marker": "agent-dispatch:" + _key(
+                            self.repo + "#12", "2026-10-13T01:00:00.000000Z")}))
         with admission(self.repo + "#12", "2026-10-13T02:00:00Z",
                        state_dir=self.state, comment_baseline=5):
             pass
