@@ -67,7 +67,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(observe(key, at, state_dir=self.state)["state"], "accepted")
         self.assertFalse(status(state_dir=self.state)["available"])
         self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
-        self.assertFalse((self.state / "delivered").exists())
+        self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
         with self.assertRaises(Busy):
             with admission("arthexis/example#27", timestamp(at),
                            state_dir=self.state):
