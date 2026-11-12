@@ -9,7 +9,7 @@ from pathlib import Path
 CONFIGURATION = Path.home() / ".config/gway-agent-ops/runtime.env"
 NAMES = frozenset((
     "GWAY_AGENT_WORKSPACE_ROOT",
-    "GWAY_AGENT_ALLOWED_REPOS",
+    "GWAY_AGENT_ALLOWED_REPOS",  # tolerated for old deployments; not consulted for admission
     "GWAY_AGENT_SEED_CODEX_HOME",
 ))
 
