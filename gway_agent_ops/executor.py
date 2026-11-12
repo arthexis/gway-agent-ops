@@ -57,6 +57,7 @@ def build_issue_prompt(issue: dict) -> str:
 def preview(ref: str, *, allowed_repositories: tuple[str, ...] | None = None, resolver=resolve) -> dict:
     """Read-only trusted issue prompt; never admits or starts execution."""
     issue = resolver(ref)
+    require_target_label(issue)
     return {"issue": f'{issue["repository"]}#{issue["number"]}', "url": issue["url"],
             "prompt": build_issue_prompt(issue), "title": issue["title"]}
 
