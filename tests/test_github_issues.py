@@ -50,12 +50,10 @@ class GithubIssueTests(unittest.TestCase):
         with self.assertRaisesRegex(IssueRejected, "invalid_issue_labels"):
             resolve(f"{REPO}#19", allowed_repositories=(REPO,), runner=runner(body))
 
-    def test_allowlist_rejects_without_network(self):
-        def should_not_call(*args, **kwargs):
-            raise AssertionError("network must not be contacted")
-        with self.assertRaisesRegex(IssueRejected, "repository_not_allowed"):
-            resolve(f"{REPO}#19", allowed_repositories=("arthexis/other",),
-                    runner=should_not_call)
+    def test_legacy_allowlist_does_not_reject_accessible_repo(self):
+        result = resolve(f"{REPO}#19", allowed_repositories=("arthexis/other",),
+                         runner=runner(payload()))
+        self.assertEqual(result["repository"], REPO)
 
     def test_untrusted_creator_closed_issue_and_pr(self):
         for body, code in ((payload(user={"login": "other"}), "creator_not_allowed"),
