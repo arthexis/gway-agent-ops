@@ -78,6 +78,8 @@ def search_issues(*, label: str, creator: str = "arthexis",
                              "title": item["title"], "state": "open",
                              "creator": creator, "comments": item["comments"],
                              "labels": names})
+        except IssueRejected:
+            raise
         except (TypeError, ValueError, KeyError, AttributeError) as exc:
             raise IssueRejected("github_unavailable") from exc
         if len(rows) == payload["total_count"]:
