@@ -7,7 +7,7 @@ from gway_agent_ops.github_issues import IssueRejected
 
 
 ISSUE = {"repository": "arthexis/example", "number": 12,
-         "title": "Fix display", "body": "Untrusted body text",
+         "title": "Fix display", "body": "Untrusted body text", "labels": ["gway-001"],
          "url": "https://github.com/arthexis/example/issues/12"}
 
 
