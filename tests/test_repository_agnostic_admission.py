@@ -21,7 +21,7 @@ def metadata(repo="arthexis/ocpp-reports", owner="arthexis", labels=None):
             "repository_url": f"https://api.github.com/repos/{repo}",
             "user": {"login": owner}, "title": "Deploy Reports on ocpp-abb-1",
             "body": "Web and Android field checks", "comments": 1,
-            "labels": [{"name": x} for x in (labels or ["gway-001"])]}
+            "labels": [{"name": x} for x in (labels if labels is not None else ["gway-001"])]}
 
 
 def gh_fixture(data, code=0):
@@ -38,7 +38,7 @@ def test_reports_preview_without_any_repository_registry():
     answer = preview(REF, resolver=lambda ref: issue)
     assert answer["issue"] == REF
     assert "READ-ONLY DEFAULT" in answer["prompt"]
-    assert "ocpp-abb-1" not in answer["prompt"]  # not in synthetic issue
+    assert "ocpp-abb-1" in answer["prompt"]  # task data, not permission
     assert "Do not push, merge, close issues" in answer["prompt"]
 
 
