@@ -73,7 +73,7 @@ def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str |
 
 
 
-def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
+def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = None,
            state_dir: Path | None = None, runner=subprocess.run,
            source: str = "direct-cli", trigger: str = "cli-submit") -> dict:
     if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
@@ -81,8 +81,6 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
     if not isinstance(at, str):
         raise ValueError("invalid_timestamp")
     at = timestamp(at)
-    if not allowed_repositories:
-        raise ValueError("repository_allowlist_missing")
     root = Path(state_dir or DEFAULT_STATE)
     _private_directory(root)
     requests = root / "requests"
@@ -127,7 +125,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
         # Apply the existing GitHub trust gate before creating any work.
         from .github_issues import require_target_label
-        require_target_label(resolve(ref, allowed_repositories=allowed_repositories))
+        require_target_label(resolve(ref))
         executable = _launch_prerequisites()
         request_record = {"issue": ref, "at": at, "state": "requested",
                           "source": source, "trigger": trigger}
@@ -146,7 +144,6 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...],
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
-            "--setenv=GWAY_AGENT_ALLOWED_REPOS=" + ",".join(allowed_repositories),
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
             "--",
