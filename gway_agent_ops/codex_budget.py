@@ -28,13 +28,17 @@ def read_budgets(root=None):
                         event = json.loads(line)
                     except (ValueError, TypeError):
                         continue
-                    if event.get("type") != "event_msg":
+                    if not isinstance(event, dict) or event.get("type") != "event_msg":
                         continue
                     payload = event.get("payload")
                     if not isinstance(payload, dict) or payload.get("type") != "token_count":
                         continue
-                    info = payload.get("info")
-                    limits = info.get("rate_limits") if isinstance(info, dict) else None
+                    # Recent Codex sessions record limits beside 'info'; older
+                    # sessions stored them inside 'info'. Prefer the direct format.
+                    limits = payload.get("rate_limits")
+                    if not isinstance(limits, dict):
+                        info = payload.get("info")
+                        limits = info.get("rate_limits") if isinstance(info, dict) else None
                     if not isinstance(limits, dict):
                         continue
                     timestamp = event.get("timestamp")
