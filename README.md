@@ -161,11 +161,10 @@ canonical issue key will be supplied to the admission component.
 
 ## A3.1 — trusted issue lookup
 
-`gway_agent_ops.github_issues.resolve(REF, allowed_repositories=(...))`
-performs read-only GitHub API lookup via the installed `gh` CLI. The caller
-must supply an explicit repository allowlist; none is inferred or implicitly
-trusted. Only open GitHub **issues**, authored by `arthexis`, in a matching
-allowed repository pass validation. Pull requests, closed issues, mismatches
+`gway_agent_ops.github_issues.resolve(REF)` performs read-only GitHub API
+lookup via the installed `gh` CLI against any repository already accessible
+to that identity. No repository allowlist is required. Only open GitHub
+**issues** authored by `arthexis` pass validation. Pull requests, closed issues, mismatches
 and unavailable GitHub authentication fail closed. Only a canonical issue
 object is returned; the untrusted title/body must be treated as task data,
 never shell arguments.
@@ -180,8 +179,7 @@ rather than passing Android/Remote credentials.
 
 `agent issue OWNER/REPO#NUMBER [--at UTC_TIMESTAMP] [--json]` now
 resolves and validates the GitHub issue, acquires the A3.2 single-agent
-execution lock, and runs one bounded `codex exec` subprocess. Configure an
-explicit comma-separated `GWAY_AGENT_ALLOWED_REPOS` and
+execution lock, and runs one bounded `codex exec` subprocess. Configure
 `GWAY_AGENT_WORKSPACE_ROOT`; existing checkouts must live at
 `WORKSPACE_ROOT/OWNER/REPO`. No arbitrary working directory may be supplied
 by a remotely submitted issue. Use `agent adopt --include-auth` to prepare
@@ -225,9 +223,9 @@ expose and test read-only reporting/issue projections.
 
 ## A3.5 — Issue list projection
 
-`agent issues --json` lists open GitHub issues from the explicit
-`GWAY_AGENT_ALLOWED_REPOS` allowlist, filtering for issues created by
-`arthexis`. Closed issues, pull requests and other authors are excluded.
+`agent issues --json` uses bounded GitHub search to list open issues
+created by `arthexis` and marked `gway-001` across accessible repositories.
+Closed issues, pull requests and other authors are excluded.
 GitHub listing failures return an error rather than a misleading partial
 success.
 
@@ -323,3 +321,39 @@ approval, tool catalog maintenance, or Watchtower configuration is required.
 For diagnostics, run `python3 -m gway_agent_ops.mcp_manifest --release
 ~/.local/share/gway-agent-ops/releases/<SHA>` against the verified release.
 A repository checkout alone does not register a provider.
+
+## Repository-agnostic AgentOps issue handling (#75; pending acceptance)
+
+AgentOps can preview and request issues from **any GitHub repository accessible to
+its existing authenticated `gh` identity**, without enrolling each repository.
+The old `GWAY_AGENT_ALLOWED_REPOS` setting is retained as a compatibility-only
+configuration key and **ignored for issue admission**. This does not grant
+new GitHub permissions or make a repository a deployment target. The
+`gway-remote deploy-targets` registry stays independent and restricted.
+
+An issue is trusted only when it is a real open GitHub **issue** (not a PR)
+with canonical identity, created by `arthexis`, and is explicitly routed with
+the exact `gway-001` label for execution. Preview does no execution.
+`submit` requires an authorized operator call with `gway:execute`, fresh
+revalidation, a frozen UTC identity, and the existing one-at-a-time durable
+admission. `READ-ONLY DEFAULT` remains active. Neither repository access nor
+an issue body grants permissions to write or deploy; task-level authorization,
+existing Codex sandbox and approval settings still apply.
+
+Execution/audit require a pre-existing checkout under the private
+`GWAY_AGENT_WORKSPACE_ROOT/OWNER/REPO`, never an arbitrary path from an
+issue body. There is deliberately **no implicit clone** or credential
+installation: a missing or unsafe checkout fails closed and must be provisioned
+separately through approved workspace setup. Preview works without checkout.
+
+The MCP/CLI issue list performs bounded GitHub-wide search for
+`gway-001`-labeled issues from `arthexis`; the independent discovery loop
+uses `local-agent`. The search is at most 3 pages of 100 issues, and rejects
+incomplete results instead of representing a partial list as complete. A
+search result never authorizes execution; `submit` re-fetches the issue.
+
+Acceptance target: `agentops__preview` for
+`arthexis/ocpp-reports#211` succeeds with no allowlist. This code change
+does **not** run that issue, deploy Reports, change authentication or reach
+production. PR Ready/merge and AgentOps runtime deployment need separate
+approval.

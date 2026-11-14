@@ -96,9 +96,9 @@ class TaskLedger:
                 "stale": bool(row and not fresh)}
 
     def require_eligible(self, issue):
-        status = self.registry_status()
-        if not status["healthy"] or issue.split("#", 1)[0] not in status["repositories"]:
-            raise ValueError("repository not eligible or registry unavailable")
+        """Validate identity; deploy-target registry is not task authority."""
+        if not isinstance(issue, str) or not ISSUE.fullmatch(issue):
+            raise ValueError("invalid issue")
 
     def attach_provenance(self, issue, origin, external_id):
         """Idempotent linkage only; never imports authorization."""
@@ -181,7 +181,7 @@ class TaskLedger:
         from .github_issues import resolve, IssueRejected
         self.require_eligible(issue)
         check = resolver or resolve
-        data = check(issue, allowed_repositories=tuple(self.registry_status()["repositories"]))
+        data = check(issue)
         if data["state"] != "open" or data["creator"].casefold() != "arthexis":
             raise IssueRejected("untrusted_issue")
         if "local-agent" not in data.get("labels", []):
@@ -194,7 +194,7 @@ class TaskLedger:
         self.require_eligible(issue)
         check = resolver or resolve
         try:
-            data = check(issue, allowed_repositories=tuple(self.registry_status()["repositories"]))
+            data = check(issue)
         except IssueRejected as exc:
             if exc.code != "issue_not_open":
                 raise

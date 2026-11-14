@@ -28,16 +28,18 @@ def require_target_label(issue: dict) -> None:
         raise IssueRejected("target_label_missing")
 
 
-def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...],
+def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...] | None = None,
             creator: str = "arthexis", runner=subprocess.run) -> dict:
-    """Fetch one issue by explicit repository allowlist, never execute issue text.
+    """Fetch one trusted issue from any accessible GitHub repository.
 
     Uses GitHub CLI's authenticated API with argument-vector subprocess only.
     Auth, network failures and unexpected payloads fail closed.
     """
     repository, number = parse_issue_ref(ref, repo)
-    if repository not in allowed_repositories:
-        raise IssueRejected("repository_not_allowed")
+    # The legacy allowed_repositories argument is ignored: GitHub access,
+    # trusted issue identity and exact labels are the admission authority.
+    if not REPOSITORY.fullmatch(repository) or any(s in (".", "..") for s in repository.split("/")):
+        raise IssueRejected("invalid_issue_ref")
     try:
         result = runner(
             ["gh", "api", f"repos/{repository}/issues/{number}"],

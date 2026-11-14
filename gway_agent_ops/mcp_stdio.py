@@ -42,11 +42,6 @@ TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] != "submit"}
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
-def _repositories():
-    from .repository_registry import agent_repositories
-    return agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
-
-
 def call_tool(name, args):
     schema = SCHEMAS.get(name)
     if schema is None or type(args) is not dict:
@@ -56,18 +51,18 @@ def call_tool(name, args):
     if "ref" in args and (type(args["ref"]) is not str or not REF.fullmatch(args["ref"])):
         raise ValueError("invalid_issue_ref")
     if name == "issues":
-        return {"issues": list_issues(allowed_repositories=_repositories())}
+        return {"issues": list_issues()}
     if name == "status":
         admission = admission_status()
         data = status_data(active=not admission["available"], **read_budgets())
         data["admission"] = admission
         return data
     if name == "preview":
-        return issue_preview(args["ref"], allowed_repositories=_repositories())
+        return issue_preview(args["ref"])
     if name == "submit":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
-        return issue_submit(args["ref"], args["at"], allowed_repositories=_repositories(),
+        return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
     if name == "observe":
         if type(args["at"]) is not str:
