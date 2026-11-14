@@ -11,7 +11,7 @@ class SubmitErrorTests(unittest.TestCase):
                      "agent_workspace_unavailable", "agent_workspace_unsafe",
                      "agent_systemd_run_unavailable", "agent_user_bus_unavailable"):
             with self.subTest(code=code):
-                with patch("gway_agent_ops.mcp_stdio._repositories", return_value=("arthexis/gway-agent-ops",)), patch(
+                with patch(
                         "gway_agent_ops.mcp_stdio.issue_submit", side_effect=ValueError(code)):
                     response = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                        "params": {"name": "submit", "arguments": {
@@ -22,7 +22,7 @@ class SubmitErrorTests(unittest.TestCase):
                 self.assertEqual(json.loads(result["content"][0]["text"]), {"error": code})
 
     def test_unknown_exception_remains_redacted(self):
-        with patch("gway_agent_ops.mcp_stdio._repositories", return_value=("arthexis/gway-agent-ops",)), patch(
+        with patch(
                 "gway_agent_ops.mcp_stdio.issue_submit", side_effect=ValueError("private secret")):
             response = handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                "params": {"name": "submit", "arguments": {

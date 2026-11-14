@@ -48,7 +48,7 @@ def _git_clean(checkout: Path, runner) -> bool:
 
 
 def audit(ref: str, *, scope: str, at: str | None = None,
-          allowed_repositories: tuple[str, ...], workspace_root: Path,
+          workspace_root: Path, allowed_repositories: tuple[str, ...] | None = None,
           timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
           git_runner=subprocess.run, state_dir: Path | None = None,
           runtime=runtime_context) -> dict:
@@ -56,9 +56,7 @@ def audit(ref: str, *, scope: str, at: str | None = None,
     _string(scope, 80)
     if not scope or not 1 <= timeout_seconds <= 7200:
         raise ValueError("invalid_audit_scope_or_timeout")
-    if not allowed_repositories:
-        raise ExecutionError("repository_allowlist_missing")
-    issue = resolver(ref, allowed_repositories=allowed_repositories)
+    issue = resolver(ref)
     require_target_label(issue)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)

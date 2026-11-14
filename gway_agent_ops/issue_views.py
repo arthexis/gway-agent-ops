@@ -1,14 +1,12 @@
-"""Read-only projection of trusted GitHub issues and dispatch history."""
+"""Read-only cross-repository projection of trusted, explicitly routed issues."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
 from .contracts import issue_row
 from .dispatch import DEFAULT_STATE
-from .github_issues import IssueRejected
+from .github_search import search_issues
 
 
 def _history(state_dir: Path) -> dict:
@@ -26,84 +24,32 @@ def _history(state_dir: Path) -> dict:
     return latest
 
 
-def _parse_pages(output: str) -> list[list[dict]]:
-    """Decode adjacent JSON arrays emitted by gh api --paginate (including gh 2.23)."""
-    decoder = json.JSONDecoder()
-    pages = []
-    offset = 0
-    while offset < len(output):
-        while offset < len(output) and output[offset].isspace():
-            offset += 1
-        if offset == len(output):
-            break
-        page, offset = decoder.raw_decode(output, offset)
-        if not isinstance(page, list):
-            raise ValueError("unexpected GitHub listing page")
-        pages.append(page)
-    if not pages:
-        raise ValueError("empty GitHub listing")
-    return pages
+def list_issues(*, allowed_repositories: tuple[str, ...] | None = None,
+                state_dir: Path | None = None, runner=None,
+                creator: str = "arthexis") -> list[dict]:
+    """Search GitHub, never the deploy-target inventory. The old arg is ignored.
 
-
-def list_issues(*, allowed_repositories: tuple[str, ...], state_dir: Path | None = None,
-                runner=subprocess.run, creator: str = "arthexis") -> list[dict]:
-    """List open, trusted issues. Fail closed rather than returning partial results."""
-    if not allowed_repositories:
-        raise IssueRejected("repository_allowlist_missing")
+    Search is bounded. Incomplete or invalid responses fail closed; no partial
+    list is presented as complete. Discovery is not execution authorization.
+    """
     history = _history(Path(state_dir or DEFAULT_STATE))
+    opts = {"label": "gway-001", "creator": creator}
+    if runner is not None:
+        opts["runner"] = runner
     rows = []
-    for repository in sorted(set(allowed_repositories)):
-        from .github_issues import REPOSITORY
-        if not REPOSITORY.fullmatch(repository):
-            raise IssueRejected("invalid_repository_allowlist")
-        cmd = ["gh", "api", "--paginate",
-               f"repos/{repository}/issues?state=open&per_page=100"]
-        try:
-            result = runner(cmd, capture_output=True, text=True, timeout=30,
-                            check=False,
-                            env={k: v for k, v in os.environ.items()
-                                 if k not in ("GH_TOKEN", "GITHUB_TOKEN")})
-            if result.returncode:
-                raise IssueRejected("github_unavailable")
-            pages = _parse_pages(result.stdout)
-            if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
-                raise ValueError("unexpected GitHub listing")
-            for page in pages:
-                for item in page:
-                    if not isinstance(item, dict) or "pull_request" in item:
-                        continue
-                    if item.get("state") != "open" or not isinstance(item.get("user"), dict):
-                        continue
-                    if item["user"].get("login", "").casefold() != creator.casefold():
-                        continue
-                    number = item.get("number")
-                    count = item.get("comments")
-                    if type(number) is not int or type(count) is not int or count < 0:
-                        raise ValueError("invalid issue metadata")
-                    key = f"{repository}#{number}"
-                    accepted = history.get(key)
-                    state = "open"
-                    if accepted:
-                        baseline = accepted.get("comment_baseline")
-                        # A baseline is needed to infer attendance; older A3.2
-                        # entries lack it, so never guess that a reply arrived.
-                        state = ("attended" if type(baseline) is int and count > baseline
-                                 else "sent")
-                    labels = item.get("labels")
-                    if not isinstance(labels, list) or any(
-                            not isinstance(label, dict) or
-                            not isinstance(label.get("name"), str) for label in labels):
-                        raise IssueRejected("invalid_issue_labels")
-                    names = [label["name"] for label in labels]
-                    eligible = "gway-001" in names
-                    rows.append(issue_row(repository=repository, number=number,
-                                          title=item["title"], state=state,
-                                          comments=count,
-                                          sent_at=accepted["at"] if accepted else None,
-                                          labels=names, eligible=eligible,
-                                          ineligible_reason=None if eligible else "target_label_missing"))
-        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError) as exc:
-            if isinstance(exc, IssueRejected):
-                raise
-            raise IssueRejected("github_unavailable") from exc
+    for item in search_issues(**opts):
+        repository, number = item["repository"], item["number"]
+        key = f"{repository}#{number}"
+        accepted = history.get(key)
+        state = "open"
+        if accepted:
+            baseline = accepted.get("comment_baseline")
+            state = ("attended" if type(baseline) is int and item["comments"] > baseline
+                     else "sent")
+        rows.append(issue_row(repository=repository, number=number,
+                              title=item["title"], state=state,
+                              comments=item["comments"],
+                              sent_at=accepted["at"] if accepted else None,
+                              labels=item["labels"], eligible=True,
+                              ineligible_reason=None))
     return sorted(rows, key=lambda row: (row["repository"], row["number"]))

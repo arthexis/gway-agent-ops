@@ -8,7 +8,6 @@ from gway_agent_ops.cli import main
 
 
 @pytest.mark.parametrize("reason", [
-    "repository_allowlist_missing",
     "agent_workspace_not_configured",
     "agent_workspace_unavailable",
     "agent_workspace_unsafe",

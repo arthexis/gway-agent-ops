@@ -91,11 +91,11 @@ def test_reject_invalid_input(tmp_path):
         with pytest.raises(ValueError):
             ledger.decide(ISSUE, "veto", actor="operator", reason="")
 
-def test_registry_fails_closed_and_preserves_veto(tmp_path):
+def test_registry_errors_are_isolated_from_task_admission_and_veto(tmp_path):
     from gway_agent_ops.repository_registry import parse_snapshot
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
-        with pytest.raises(ValueError):
-            ledger.discover(ISSUE)
+        # Discovery is independent of the legacy deploy registry.
+        ledger.discover(ISSUE)
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "veto", actor="operator", reason="hold")
@@ -103,21 +103,18 @@ def test_registry_fails_closed_and_preserves_veto(tmp_path):
             ledger.refresh_repositories('{"schema":1}')
         assert ledger.get(ISSUE)["state"] == "vetoed"
         assert ledger.registry_status()["healthy"] is False
-        with pytest.raises(ValueError):
-            ledger.discover("arthexis/gway-remote#2")
+        assert ledger.discover("arthexis/gway-remote#2")["state"] == "requested"
         ready(ledger)
         assert ledger.get(ISSUE)["state"] == "vetoed"
 
 
-def test_removed_repo_blocks_approval(tmp_path):
+def test_removed_deployment_target_does_not_block_approval(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.refresh_repositories(json.dumps({"schema": 1, "revision": "b" * 40,
             "targets": [{"name": "remote", "repository": "arthexis/gway-remote"}]}))
-        with pytest.raises(ValueError):
-            ledger.decide(ISSUE, "approve", actor="operator")
-        assert ledger.get(ISSUE)["state"] == "requested"
+        assert ledger.decide(ISSUE, "approve", actor="operator")["state"] == "approved"
 
 
 @pytest.mark.parametrize("targets", [[], [
@@ -133,25 +130,25 @@ def test_discovery_requires_trusted_open_labeled_issue(tmp_path):
     from gway_agent_ops.github_issues import IssueRejected
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
-        def valid(issue, *, allowed_repositories):
-            assert issue.split("#")[0] in allowed_repositories
+        def valid(issue):
+            assert issue == ISSUE
             return {"state": "open", "creator": "arthexis", "labels": ["local-agent"]}
         assert ledger.discover_verified(ISSUE, resolver=valid)["state"] == "requested"
-        def unlabeled(issue, *, allowed_repositories):
+        def unlabeled(issue):
             return {"state": "open", "creator": "arthexis", "labels": []}
         with pytest.raises(IssueRejected):
             ledger.discover_verified("arthexis/gway-agent-ops#27", resolver=unlabeled)
         assert ledger.get("arthexis/gway-agent-ops#27") is None
 
 
-def test_removed_repo_is_not_next_approved(tmp_path):
+def test_removed_deployment_target_does_not_change_approved_task(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
         ledger.refresh_repositories(json.dumps({"schema": 1, "revision": "b" * 40,
             "targets": [{"name": "remote", "repository": "arthexis/gway-remote"}]}))
-        assert ledger.next_approved() is None
+        assert ledger.next_approved()["issue"] == ISSUE
         assert ledger.get(ISSUE)["state"] == "approved"
 
 def test_reconciliation_withdraws_only_on_verified_label_removal(tmp_path):
@@ -159,7 +156,7 @@ def test_reconciliation_withdraws_only_on_verified_label_removal(tmp_path):
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
-        def removed(issue, *, allowed_repositories):
+        def removed(issue):
             return {"state": "open", "labels": []}
         assert ledger.reconcile_issue(ISSUE, resolver=removed)["state"] == "withdrawn"
         assert ledger.next_approved() is None
@@ -173,7 +170,7 @@ def test_reconciliation_network_failure_preserves_approval(tmp_path):
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
-        def offline(issue, *, allowed_repositories):
+        def offline(issue):
             raise IssueRejected("github_unavailable")
         with pytest.raises(IssueRejected):
             ledger.reconcile_issue(ISSUE, resolver=offline)
@@ -185,7 +182,7 @@ def test_reconciliation_closed_issue_and_veto_preservation(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
         ledger.discover(ISSUE)
-        def closed(issue, *, allowed_repositories):
+        def closed(issue):
             raise IssueRejected("issue_not_open")
         assert ledger.reconcile_issue(ISSUE, resolver=closed)["state"] == "withdrawn"
         other = "arthexis/gway-remote#2"
@@ -193,7 +190,7 @@ def test_reconciliation_closed_issue_and_veto_preservation(tmp_path):
         ledger.decide(other, "veto", actor="operator", reason="hold")
         assert ledger.reconcile_issue(other, resolver=closed)["state"] == "vetoed"
 
-def test_stale_registry_blocks_admission_without_erasing_history(tmp_path):
+def test_stale_deploy_registry_does_not_block_new_issue(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
         ledger.discover(ISSUE)
@@ -203,8 +200,7 @@ def test_stale_registry_blocks_admission_without_erasing_history(tmp_path):
             ("2020-01-01T00:00:00+00:00",))
         assert ledger.registry_status()["stale"] is True
         assert ledger.registry_status()["healthy"] is False
-        with pytest.raises(ValueError):
-            ledger.discover("arthexis/gway-remote#3")
+        assert ledger.discover("arthexis/gway-remote#3")["state"] == "requested"
         assert ledger.get(ISSUE)["state"] == "vetoed"
 
 

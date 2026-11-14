@@ -54,25 +54,22 @@ def build_issue_prompt(issue: dict) -> str:
     )
 
 
-def preview(ref: str, *, allowed_repositories: tuple[str, ...], resolver=resolve) -> dict:
+def preview(ref: str, *, allowed_repositories: tuple[str, ...] | None = None, resolver=resolve) -> dict:
     """Read-only trusted issue prompt; never admits or starts execution."""
-    if not allowed_repositories:
-        raise ExecutionError("repository_allowlist_missing")
-    issue = resolver(ref, allowed_repositories=allowed_repositories)
+    issue = resolver(ref)
+    require_target_label(issue)
     return {"issue": f'{issue["repository"]}#{issue["number"]}', "url": issue["url"],
             "prompt": build_issue_prompt(issue), "title": issue["title"]}
 
 
 def execute(ref: str, *, repo: str | None = None, at: str | None = None,
-            allowed_repositories: tuple[str, ...], workspace_root: Path,
+            workspace_root: Path, allowed_repositories: tuple[str, ...] | None = None,
             timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
             state_dir: Path | None = None, runtime=runtime_context) -> dict:
     """Report Codex process outcome without attesting administrative side effects."""
     if not 1 <= timeout_seconds <= 7200:
         raise ValueError("timeout must be 1..7200 seconds")
-    if not allowed_repositories:
-        raise ExecutionError("repository_allowlist_missing")
-    issue = resolver(ref, repo=repo, allowed_repositories=allowed_repositories)
+    issue = resolver(ref, repo=repo)
     require_target_label(issue)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)

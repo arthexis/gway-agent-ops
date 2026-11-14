@@ -1,5 +1,4 @@
 """CLI contract only: this foundation never executes Codex."""
-from .repository_registry import agent_repositories
 import argparse
 import os
 from pathlib import Path
@@ -213,8 +212,7 @@ def main(argv=None):
         from .nonblocking import submit
         from .github_issues import IssueRejected
         try:
-            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
-            data = submit(args.ref, args.at, allowed_repositories=allowed,
+            data = submit(args.ref, args.at,
                           source=args.origin, trigger=("authenticated-agent-issue"
                           if args.origin == "remote-api" else "cli-submit"))
             result = envelope("submit", "ok", data=data)
@@ -230,7 +228,6 @@ def main(argv=None):
             # Only expose recognized, non-sensitive preflight codes. Never
             # serialize arbitrary exception text from filesystem or GitHub.
             preflight = {
-                "repository_allowlist_missing": "Configure the Agent Ops repository allowlist",
                 "agent_cli_not_found": "Agent Ops executable is unavailable",
                 "agent_workspace_not_configured": "Configure the Agent Ops workspace root",
                 "agent_workspace_unavailable": "Agent Ops workspace is unavailable",
@@ -314,8 +311,7 @@ def main(argv=None):
         from .executor import preview, ExecutionError
         from .github_issues import IssueRejected
         try:
-            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
-            data = preview(args.ref, allowed_repositories=allowed)
+            data = preview(args.ref)
             result, code = envelope("preview", "ok", data=data), 0
         except (ValueError, OSError, IssueRejected, ExecutionError):
             result, code = envelope("preview", "error", error={"code": "preview_unavailable", "message": "Trusted prompt unavailable"}), 1
@@ -342,13 +338,11 @@ def main(argv=None):
         from .github_issues import IssueRejected
         from .executor import ExecutionError
         try:
-            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get(
-                "GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
             if not workspace:
                 raise ExecutionError("workspace_root_missing")
             data = audit(args.ref, scope=args.scope, at=args.at,
-                         allowed_repositories=allowed, workspace_root=Path(workspace))
+                         workspace_root=Path(workspace))
             good = (data["status"] == "finished" and data["receipt_state"] == "receipt_valid"
                     and all(value == "PASS" for value in data["receipt"]["checks"].values()))
             status, code = ("ok", 0) if good else ("degraded", 1)
@@ -373,12 +367,11 @@ def main(argv=None):
         from .github_issues import IssueRejected
         from .executor import ExecutionError, execute
         try:
-            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
             workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
             if not workspace:
                 raise ExecutionError("workspace_root_missing")
             data = execute(args.ref, repo=args.repo, at=args.at,
-                           allowed_repositories=allowed, workspace_root=Path(workspace))
+                           workspace_root=Path(workspace))
             status = data["status"]
             code = 0 if status == "finished" else 1
             error = None if code == 0 else {"code": "codex_failed", "message": "Codex returned nonzero"}
@@ -405,8 +398,7 @@ def main(argv=None):
         from .issue_views import list_issues
         from .github_issues import IssueRejected
         try:
-            allowed = agent_repositories(tuple(x.strip() for x in os.environ.get("GWAY_AGENT_ALLOWED_REPOS", "").split(",") if x.strip()))
-            data = {"issues": list_issues(allowed_repositories=allowed),
+            data = {"issues": list_issues(),
                     "agent": __import__("socket").gethostname().lower()}
             status, error, code = "ok", None, 0
         except (IssueRejected, OSError, ValueError) as exc:

@@ -30,7 +30,7 @@ class ExecutionTests(unittest.TestCase):
             seen.append((argv, options))
             return subprocess.CompletedProcess(argv, 0, "TOKEN-NEVER-PRINT", "")
         def resolver(ref, **options):
-            self.assertEqual(options["allowed_repositories"], ("arthexis/example",))
+            self.assertEqual(options, {"repo": None})
             return self.issue
         def runtime():
             home = self.root / "codex-home"

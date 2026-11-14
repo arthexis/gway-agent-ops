@@ -7,7 +7,7 @@ from gway_agent_ops.github_issues import IssueRejected
 
 
 ISSUE = {"repository": "arthexis/example", "number": 12,
-         "title": "Fix display", "body": "Untrusted body text",
+         "title": "Fix display", "body": "Untrusted body text", "labels": ["gway-001"],
          "url": "https://github.com/arthexis/example/issues/12"}
 
 
@@ -18,14 +18,13 @@ class PreviewTests(unittest.TestCase):
                          allowed_repositories=("arthexis/example",), resolver=resolver)
         self.assertEqual(result["prompt"], build_issue_prompt(ISSUE))
         self.assertIn("<issue-body>", result["prompt"])
-        resolver.assert_called_once_with("arthexis/example#12",
-                                         allowed_repositories=("arthexis/example",))
+        resolver.assert_called_once_with("arthexis/example#12")
 
-    def test_missing_allowlist_fails_closed_without_resolution(self):
-        resolver = Mock()
-        with self.assertRaises(ExecutionError):
-            preview("arthexis/example#12", allowed_repositories=(), resolver=resolver)
-        resolver.assert_not_called()
+    def test_missing_legacy_allowlist_does_not_block_preview(self):
+        resolver = Mock(return_value=ISSUE)
+        result = preview("arthexis/example#12", allowed_repositories=(), resolver=resolver)
+        self.assertEqual(result["issue"], "arthexis/example#12")
+        resolver.assert_called_once_with("arthexis/example#12")
 
     def test_rejected_issue_cannot_be_previewed(self):
         resolver = Mock(side_effect=IssueRejected("repository_not_allowed"))
