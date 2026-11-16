@@ -294,3 +294,67 @@ def test_reject_symlink_on_open_before_sqlite(tmp_path):
         with TaskLedger(path / "tasks.sqlite3"):
             pass
     assert victim.read_text() == "untouched"
+
+
+def _process_submission(path, due_time, entered, release, results):
+    """Child process holds real SQLite writer lock during fake submission."""
+    from datetime import datetime
+    def fake_submit(_ref, _at, **_kwargs):
+        entered.set()
+        if not release.wait(8):
+            raise RuntimeError("test release timeout")
+        return {"state": "requested"}
+    try:
+        outcome = scheduler.tick(
+            ledger_path=path, now=due_time, resolver=trusted,
+            submitter=fake_submit)
+        results.put(outcome["results"][0]["state"])
+    except BaseException as error:
+        results.put("error:" + type(error).__name__)
+
+
+def test_veto_linearizes_against_dispatch_across_processes(ledger):
+    """A veto cannot *commit* between final approval check and submit."""
+    import multiprocessing
+    import sqlite3
+
+    ctx = multiprocessing.get_context("fork")
+    scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    entered, release, results = ctx.Event(), ctx.Event(), ctx.Queue()
+    worker = ctx.Process(target=_process_submission, args=(
+        ledger, NOW + timedelta(hours=2), entered, release, results))
+    worker.start()
+    try:
+        assert entered.wait(8), "worker did not reach the submission boundary"
+        # Simulate a separate veto writer with a short timeout. The concurrent
+        # submit owns BEGIN IMMEDIATE across the full nonblocking launcher.
+        db = sqlite3.connect(ledger, timeout=0.2, isolation_level=None)
+        try:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                db.execute("BEGIN IMMEDIATE")
+        finally:
+            db.close()
+        release.set()
+        worker.join(12)
+        assert worker.exitcode == 0
+        assert results.get(timeout=2) == "requested"
+        # The veto can happen *after* admission, never invisibly between
+        # authorization validation and the submission linearization.
+        with TaskLedger(ledger) as entry:
+            entry.decide(REF, "veto_approved", actor="operator",
+                         reason="post-admission veto")
+    finally:
+        release.set()
+        if worker.is_alive():
+            worker.terminate()
+        worker.join(5)
+
+
+def test_veto_committed_before_submission_fails_closed(ledger):
+    scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    with TaskLedger(ledger) as entry:
+        entry.decide(REF, "veto_approved", actor="operator", reason="before claim")
+    result = scheduler.tick(
+        ledger_path=ledger, now=NOW + timedelta(hours=2), resolver=trusted,
+        submitter=lambda *_a, **_k: pytest.fail("revoked task was dispatched"))
+    assert result["results"][0]["state"] == "blocked"
