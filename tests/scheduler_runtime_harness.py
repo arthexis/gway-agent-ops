@@ -12,6 +12,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import time
 
 EXPECTED_HEAD = "4e7507240c3386270a466be7115926996be1835b"
 REF = "arthexis/gway-agent-ops#87"
@@ -83,8 +84,44 @@ def execute(args):
         print(json.dumps(scheduler.list_schedules(ledger_path=args.ledger)))
 
 
+def _group_has_live_members(group_id, proc_root=Path("/proc")):
+    """Do not mistake exited, unreaped Linux zombies for running workers.
+
+    killpg(group_id, 0) alone is insufficient: it also succeeds when a
+    grandchild was killed but has not yet been reaped by its adoptive parent.
+    """
+    if proc_root.is_dir():
+        for entry in proc_root.iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                # /proc/PID/stat: state, ppid, pgrp follow the final ') '.
+                fields = (entry / "stat").read_text(errors="replace").rpartition(") ")[2].split()
+                if (len(fields) > 2 and int(fields[2]) == group_id
+                        and fields[0] not in ("Z", "X", "x")):
+                    return True
+            except (OSError, ValueError):
+                # The process may have exited between directory listing and read.
+                continue
+        return False
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _wait_group_quiet(group_id, timeout=2):
+    deadline = time.monotonic() + timeout
+    while _group_has_live_members(group_id):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 def timeout_cleanup_probe(timeout=0.3):
-    """Real process-group timeout/cleanup probe with synthetic children only."""
+    """Terminate synthetic descendants; zombies do not count as live work."""
     child = subprocess.Popen([
         sys.executable, "-c",
         "import subprocess,sys,time; "
@@ -106,13 +143,22 @@ def timeout_cleanup_probe(timeout=0.3):
         try:
             child.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
+            pass
+        # The parent may exit before its grandchild. Check the entire group
+        # before deciding whether SIGKILL escalation is necessary.
+        if not _wait_group_quiet(child.pid, timeout=1):
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        try:
             child.wait(timeout=2)
-    try:
-        os.killpg(child.pid, 0)
-    except ProcessLookupError:
-        return {"timeout": True, "process_group_gone": True}
-    raise RuntimeError("descendants_not_quiescent")
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=2)
+    if not _wait_group_quiet(child.pid, timeout=2):
+        raise RuntimeError("descendants_not_quiescent")
+    return {"timeout": True, "process_group_gone": True}
 
 
 def main(argv=None):
