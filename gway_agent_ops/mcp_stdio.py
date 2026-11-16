@@ -33,12 +33,24 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
+    {"name": "schedule", "description": "Persist a future one-shot issue invocation; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "run_at": {"type": "string"}}, "required": ["ref", "run_at"],
+                     "additionalProperties": False}},
+    {"name": "scheduled_list", "description": "List scheduled tasks, without dispatch.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "scheduled_get", "description": "Read a schedule by opaque identifier.",
+     "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
+                     "required": ["schedule_id"], "additionalProperties": False}},
+    {"name": "schedule_cancel", "description": "Cancel an unclaimed schedule; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
+                     "required": ["schedule_id"], "additionalProperties": False}},
     {"name": "observe", "description": "Observe an existing frozen issue invocation.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}},
 )
-TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] != "submit"}} for tool in TOOLS)
+TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in ("submit", "schedule", "schedule_cancel")}} for tool in TOOLS)
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
@@ -64,6 +76,17 @@ def call_tool(name, args):
             raise ValueError("invalid_timestamp")
         return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
+    if name in ("schedule", "scheduled_list", "scheduled_get", "schedule_cancel"):
+        from . import scheduler
+        if name == "schedule":
+            if type(args["run_at"]) is not str:
+                raise ValueError("invalid_run_at")
+            return scheduler.create(args["ref"], args["run_at"])
+        if name == "scheduled_list":
+            return {"schedules": scheduler.list_schedules()}
+        if name == "scheduled_get":
+            return scheduler.get(args["schedule_id"])
+        return scheduler.cancel(args["schedule_id"])
     if name == "observe":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
@@ -81,6 +104,8 @@ _SAFE_CODES = frozenset({
     "agent_cli_not_found", "agent_workspace_not_configured",
     "agent_workspace_unavailable", "agent_workspace_unsafe",
     "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
+    "invalid_run_at", "timezone_required", "run_at_out_of_range",
+    "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
 })
 
 
