@@ -10,8 +10,9 @@ class McpStdioTests(unittest.TestCase):
     def test_catalog_classifies_mutation(self):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
-        self.assertEqual(names, {"issues", "status", "preview", "observe", "submit"})
-        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] != "submit")
+        self.assertEqual(names, {"issues", "status", "preview", "observe", "submit",
+                                 "schedule", "scheduled_list", "scheduled_get", "schedule_cancel"})
+        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in ("submit", "schedule", "schedule_cancel"))
                             for tool in response["result"]["tools"]))
 
     def test_submit_missing_arguments_cannot_be_called(self):
