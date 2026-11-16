@@ -24,11 +24,12 @@ installer. Do not invoke the wrapper as root. **Pruning remains disabled.**
 
 ## GWAY-001 agent issue routing
 
-Before submitting a field-agent task, add the exact GitHub label `gway-001`.
-This routing marker is required for GWAY-001, but does **not** authorize execution.
-Trusted author, open issue, explicitly allowed repository, operator action and
-single-slot admission remain mandatory. Agent Ops checks labels with fresh GitHub
-metadata at submission and again at execution, never relying on Android's cache.
+Any open, trusted-author GitHub issue in an accessible repository may be submitted
+without a routing label. Labels remain optional task-policy hints (for example,
+`agentops:implementation`); they do **not** authorize execution. Operator action,
+trusted author, current GitHub issue validation, workspace checks, and single-slot
+idempotent admission remain mandatory. The separate `local-agent` discovery opt-in
+is unchanged: discovery does not dispatch automatically.
 
 ## Contents
 
@@ -224,7 +225,7 @@ expose and test read-only reporting/issue projections.
 ## A3.5 — Issue list projection
 
 `agent issues --json` uses bounded GitHub search to list open issues
-created by `arthexis` and marked `gway-001` across accessible repositories.
+created by `arthexis` across accessible repositories, regardless of labels.
 Closed issues, pull requests and other authors are excluded.
 GitHub listing failures return an error rather than a misleading partial
 success.
