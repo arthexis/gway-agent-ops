@@ -123,12 +123,16 @@ def _row(db, schedule_id):
 
 
 def _validate_issue(ref, resolver=None):
-    from .github_issues import resolve, require_target_label
+    from .github_issues import resolve
     if type(ref) is not str or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
-    # The existing resolver validates trusted creator, real open issue, non-PR.
+    # Routing labels are optional. Keep the existing trusted-author/open-issue
+    # contract even for injected test resolvers; production resolve rejects PRs.
     data = (resolver or resolve)(ref)
-    require_target_label(data)
+    if (type(data) is not dict or data.get("state") != "open"
+            or type(data.get("creator")) is not str
+            or data["creator"].casefold() != "arthexis"):
+        raise ValueError("untrusted_issue")
     return data
 
 
