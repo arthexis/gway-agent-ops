@@ -99,6 +99,30 @@ class ResultRecoveryTests(unittest.TestCase):
         self.assertEqual(value["report_state"], "github_unavailable")
         self.assertNotIn("secret", str(value))
 
+    def test_pagination_finds_exact_identity_on_later_page(self):
+        unrelated = {"id": 999, "user": {"login": "arthexis"},
+                     "body": "Unrelated comment"}
+        self.pages = [[unrelated for _ in range(100)], [comment()]]
+        value = report(REF, AT, state_dir=self.root, runner=self.runner)
+        self.assertEqual(value["report_state"], "retrieved")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_full_page_at_scan_limit_is_incomplete_not_missing(self):
+        unrelated = {"id": 999, "user": {"login": "arthexis"},
+                     "body": "Unrelated comment"}
+        self.pages = [[unrelated for _ in range(100)] for _ in range(10)]
+        value = report(REF, AT, state_dir=self.root, runner=self.runner)
+        self.assertEqual(value["report_state"], "incomplete_search")
+        self.assertEqual(len(self.calls), 10)
+
+    def test_rejects_noncanonical_extra_lines(self):
+        row = comment()
+        row["body"] = row["body"].replace(
+            "**Evidence:**", "unexpected narrative\\n**Evidence:**")
+        self.pages = [[row]]
+        value = report(REF, AT, state_dir=self.root, runner=self.runner)
+        self.assertEqual(value["report_state"], "invalid_report")
+
     def test_mcp_report_is_read_only(self):
         tool = next(t for t in mcp_stdio.TOOLS if t["name"] == "report")
         self.assertTrue(tool["annotations"]["readOnlyHint"])
