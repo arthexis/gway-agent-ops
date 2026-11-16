@@ -83,7 +83,7 @@ def call_tool(name, args):
 _SAFE_CODES = frozenset({
     "repository_allowlist_missing", "invalid_repository_allowlist",
     "repository_not_allowed", "github_unavailable", "issue_not_open",
-    "not_an_issue", "creator_not_allowed", "target_label_missing",
+    "not_an_issue", "creator_not_allowed",
     "invalid_issue_ref", "invalid_arguments", "invalid_tool",
     "invalid_timestamp", "invalid_github_response", "invalid_issue",
     "invalid_issue_labels", "repository_mismatch", "issue_mismatch",
