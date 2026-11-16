@@ -440,3 +440,12 @@ GWay Remote must demonstrate denial of `schedule`/`schedule_cancel`
 with `gway:read` and dispatch only with `gway:execute`, at its provider
 authorization boundary, before rollout. The systemd timer remains opt-in;
 do not enable it until this check and owner runtime environment are verified.
+
+## Local execution history
+
+Use `agent history` to list accepted local Agent Ops executions, newest first.
+`agent history --limit 3` limits the results; `agent history --limit 3 --json`
+returns a versioned JSON envelope. This reads the local dispatch and report
+journals without contacting GitHub or starting work. The recorded process state
+and report delivery do not establish that the issue was resolved. This is
+separate from `agent tasks`, cloud executions and other nodes.
