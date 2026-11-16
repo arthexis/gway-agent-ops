@@ -10,7 +10,7 @@ class McpStdioTests(unittest.TestCase):
     def test_catalog_classifies_mutation(self):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
-        self.assertEqual(names, {"issues", "status", "preview", "observe", "submit"})
+        self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit"})
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] != "submit")
                             for tool in response["result"]["tools"]))
 
