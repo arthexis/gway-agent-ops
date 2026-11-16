@@ -15,28 +15,32 @@ class McpStdioTests(unittest.TestCase):
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in ("submit", "schedule", "schedule_cancel"))
                             for tool in response["result"]["tools"]))
 
-    def test_scheduled_writes_fail_closed_without_verified_federated_principal(self):
-        # A verified scope alone is insufficient to authorize a delayed write.
-        # The current stdio provider has no authenticated remote principal.
+    def test_scheduled_mcp_routes_reuse_existing_scheduler_authority(self):
+        # The federated gateway enforces gway:execute; the provider must not
+        # invent a second per-principal authorization policy.
         from gway_agent_ops import scheduler
         cases = (
             ("schedule", {"ref": "arthexis/gway-agent-ops#80",
-                          "run_at": "2026-11-20T16:00:00-06:00"}),
-            ("schedule_cancel", {"schedule_id": "a" * 64}),
+                          "run_at": "2026-11-20T16:00:00-06:00"},
+             "create", {"schedule_id": "a" * 64}),
+            ("schedule_cancel", {"schedule_id": "a" * 64},
+             "cancel", {"state": "cancelled"}),
         )
-        with patch.object(scheduler, "create") as create, \
-             patch.object(scheduler, "cancel") as cancel:
-            for name, arguments in cases:
-                with self.subTest(name=name):
-                    response = mcp_stdio.handle({
-                        "jsonrpc": "2.0", "id": 9, "method": "tools/call",
-                        "params": {"name": name, "arguments": arguments},
-                    })
-                    self.assertTrue(response["result"]["isError"])
-                    self.assertEqual(json.loads(response["result"]["content"][0]["text"]),
-                                     {"error": "schedule_federated_principal_unavailable"})
-            create.assert_not_called()
-            cancel.assert_not_called()
+        for name, arguments, target, expected in cases:
+            with self.subTest(name=name), patch.object(scheduler, target,
+                                                      return_value=expected) as action:
+                response = mcp_stdio.handle({
+                    "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                    "params": {"name": name, "arguments": arguments},
+                })
+                self.assertFalse(response["result"].get("isError", False))
+                self.assertEqual(json.loads(response["result"]["content"][0]["text"]),
+                                 expected)
+                if name == "schedule":
+                    action.assert_called_once_with(arguments["ref"], arguments["run_at"],
+                                                   request_at=None)
+                else:
+                    action.assert_called_once_with(arguments["schedule_id"])
 
     def test_submit_missing_arguments_cannot_be_called(self):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 2,
