@@ -128,8 +128,14 @@ def test_frozen_transport_identity_is_idempotent(ledger):
 def test_cancel_claim_race_fails_closed(ledger):
     record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
     def submit_during_claim(ref, at, **kwargs):
-        with pytest.raises(ValueError, match="schedule_not_cancellable"):
-            scheduler.cancel(record["schedule_id"], ledger_path=ledger)
+        # Submission keeps a SQLite write transaction open. A competing
+        # cancellation cannot take its own writer lock until admission exits.
+        db = sqlite3.connect(ledger, timeout=0.1, isolation_level=None)
+        try:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                db.execute("BEGIN IMMEDIATE")
+        finally:
+            db.close()
         return {"state": "busy"}
     result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
                             resolver=trusted, submitter=submit_during_claim)
