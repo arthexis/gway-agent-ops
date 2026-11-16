@@ -147,7 +147,8 @@ def _install_scheduler_units(source, home):
             raise ValueError("unsafe scheduler unit destination")
         if dest.exists():
             info = dest.lstat()
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
                 raise ValueError("unsafe scheduler unit destination")
             if dest.read_bytes() == data:
                 continue
