@@ -35,3 +35,22 @@ def test_source_pin_and_fake_only_dispatch_are_explicit():
     assert "submitter=fake_submit" in source
     assert "os._exit(71)" in source
     assert "start_new_session=True" in source
+
+
+def test_group_probe_distinguishes_zombies_from_live_descendants(tmp_path):
+    # /proc stat encodes state and pgrp, even for children adopted by PID 1.
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    for pid, state, group in ((101, "Z", 700), (102, "X", 700),
+                               (103, "S", 701)):
+        task = proc / str(pid)
+        task.mkdir()
+        (task / "stat").write_text(
+            f"{pid} (synthetic worker) {state} 1 {group} {group} 0 0\n")
+    assert harness._group_has_live_members(700, proc) is False
+
+    live = proc / "104"
+    live.mkdir()
+    (live / "stat").write_text(
+        "104 (process with ) in its name) S 1 700 700 0 0\n")
+    assert harness._group_has_live_members(700, proc) is True
