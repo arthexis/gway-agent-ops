@@ -232,8 +232,8 @@ def cancel(schedule_id, *, ledger_path=None):
 def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10):
     """Explicit scheduler-only tick. Claim-before-I/O enforces at-most-once.
 
-    Busy, unavailable trust and ambiguous launch are terminal for automatic
-    retry; operators may create a new schedule after inspecting the receipt.
+    Definitive busy outcomes defer within a bounded retry budget; ambiguous
+    launches and interrupted claims never retry automatically.
     """
     from .nonblocking import submit
     if type(limit) is not int or not 1 <= limit <= 100:
@@ -281,13 +281,25 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
         state, receipt = "blocked", {"code": "preflight_unavailable"}
         try:
             _validate_issue(record["issue"], resolver)
-            # A veto can race the earlier claim/GitHub check. Recheck the
-            # exact approval generation immediately before submission.
-            with _read_db(path) as authorized_db:
-                _approved(authorized_db, record["issue"],
-                          expected=record["approval_event_id"])
-            result = (submitter or submit)(record["issue"], record["dispatch_at"],
-                source="scheduled", trigger="scheduler-due")
+            # The authorization linearization point is this SQLite writer
+            # transaction. Hold BEGIN IMMEDIATE through dispatch submission:
+            # any concurrent veto must commit before this lock (and therefore
+            # be rejected here), or wait until the attempt has been admitted.
+            # A read-only recheck followed by submit leaves a real TOCTOU gap.
+            # Keep this transaction short: submit is the existing bounded
+            # *nonblocking* launcher, not the lifetime of the Codex job.
+            with TaskLedger(path) as authority:
+                authority.db.execute("BEGIN IMMEDIATE")
+                try:
+                    _approved(authority.db, record["issue"],
+                              expected=record["approval_event_id"])
+                    result = (submitter or submit)(
+                        record["issue"], record["dispatch_at"],
+                        source="scheduled", trigger="scheduler-due")
+                    authority.db.execute("COMMIT")
+                except BaseException:
+                    authority.db.execute("ROLLBACK")
+                    raise
             raw = result.get("state")
             if raw == "requested":
                 state = "requested"
