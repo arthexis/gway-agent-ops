@@ -77,6 +77,11 @@ def call_tool(name, args):
         return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
     if name in ("schedule", "scheduled_list", "scheduled_get", "schedule_cancel"):
+        # Remote federation currently conveys scope, not an authenticated OAuth
+        # principal. An installation-user fallback cannot authorize a deferred
+        # write. Fail closed until the trusted principal transport is integrated.
+        if name in ("schedule", "schedule_cancel"):
+            raise ValueError("schedule_federated_principal_unavailable")
         from . import scheduler
         if name == "schedule":
             if type(args["run_at"]) is not str:
@@ -106,6 +111,7 @@ _SAFE_CODES = frozenset({
     "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
     "invalid_run_at", "timezone_required", "run_at_out_of_range",
     "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
+    "schedule_federated_principal_unavailable",
 })
 
 
