@@ -137,3 +137,34 @@ def test_mcp_rejects_unrecognized_schedule_args():
     from gway_agent_ops.mcp_stdio import call_tool
     with pytest.raises(ValueError, match="invalid_arguments"):
         call_tool("schedule", {"ref": REF, "run_at": DUE, "command": "rm -rf /"})
+
+
+def test_read_only_terminal_observation(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                   resolver=trusted, submitter=lambda *_a, **_k: {"state": "requested"})
+    result = scheduler.inspect(record["schedule_id"], ledger_path=ledger,
+                               observer=lambda _ref, _at: {"state": "finished"})
+    assert result["state"] == "requested"  # durable request state retained
+    assert result["execution_state"] == "finished"
+    assert result["execution_terminal"] is True
+    assert scheduler.get(record["schedule_id"], ledger_path=ledger)["state"] == "requested"
+
+
+def test_competing_ticks_claim_once(ledger):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Lock
+    scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    calls = []
+    lock = Lock()
+    def submit(ref, at, **_):
+        with lock:
+            calls.append((ref, at))
+        return {"state": "requested"}
+    def run(_):
+        return scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                              resolver=trusted, submitter=submit)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(run, range(2)))
+    assert sum(r["processed"] for r in results) == 1
+    assert len(calls) == 1
