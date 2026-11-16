@@ -367,3 +367,14 @@ returns a versioned JSON envelope. This reads the local dispatch and report
 journals without contacting GitHub or starting work. The recorded process state
 and report delivery do not establish that the issue was resolved. This is
 separate from `agent tasks`, cloud executions and other nodes.
+
+### Readiness in a worker context
+
+Run `agent readiness --json` as the intended worker identity in its actual
+execution environment. It checks launch prerequisites, private Codex
+configuration and authentication presence, executable availability, GitHub CLI
+authentication status, and the local registry's freshness without dispatching
+an issue or creating a ledger. It reports the calling process context only;
+running it from an interactive shell does not establish the environment or
+success of a separate transient worker. GitHub authentication status is not a
+repository access check, and this command never runs Codex or tests a checkout.
