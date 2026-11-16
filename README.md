@@ -357,3 +357,12 @@ Acceptance target: `agentops__preview` for
 does **not** run that issue, deploy Reports, change authentication or reach
 production. PR Ready/merge and AgentOps runtime deployment need separate
 approval.
+
+## Local execution history
+
+Use `agent history` to list accepted local Agent Ops executions, newest first.
+`agent history --limit 3` limits the results; `agent history --limit 3 --json`
+returns a versioned JSON envelope. This reads the local dispatch and report
+journals without contacting GitHub or starting work. The recorded process state
+and report delivery do not establish that the issue was resolved. This is
+separate from `agent tasks`, cloud executions and other nodes.
