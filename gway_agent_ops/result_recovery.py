@@ -6,7 +6,6 @@ must remain local, bounded and independent of GitHub availability.
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from pathlib import Path
 
@@ -25,13 +24,12 @@ def _extract(body: str, *, at: str, marker: str) -> dict | None:
     if type(body) is not str or len(body) > MAX_COMMENT:
         return None
     lines = body.splitlines()
-    if not lines or lines[0] != f"Agent findings for {at}":
+    if len(lines) < 11 or lines[0] != f"Agent findings for {at}":
         return None
     if lines[-1] != f"<!-- {marker} -->" or body.count(marker) != 1:
         return None
     try:
-        summary_index = lines.index("**Summary:** " + lines[2].removeprefix("**Summary:** "))
-        if summary_index != 2 or not lines[2].startswith("**Summary:** "):
+        if lines[1] != "" or not lines[2].startswith("**Summary:** "):
             return None
         find_index = lines.index("**Findings:**")
         evidence_index = lines.index("**Evidence:**")
