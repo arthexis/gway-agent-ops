@@ -8,7 +8,11 @@ from __future__ import annotations
 import getpass
 import hashlib
 import json
+import os
+import stat
 import sqlite3
+from contextlib import contextmanager
+from urllib.parse import quote
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +23,46 @@ HORIZON = timedelta(days=90)
 STATES = ("scheduled", "cancelled", "claimed", "blocked", "launch_unconfirmed",
           "requested", "finished", "failed", "interrupted")
 DEFAULT_LEDGER = Path.home() / ".local/state/gway-agent-ops/tasks.sqlite3"
+MAX_BUSY_RETRIES = 6
+RETRY_DELAY = timedelta(minutes=2)
+
+
+def ledger_path(path=None):
+    return Path(path if path is not None else os.environ.get(
+        "GWAY_AGENT_LEDGER_PATH", str(DEFAULT_LEDGER)))
+
+
+def _approved(db, issue, *, expected=None):
+    task = db.execute("SELECT id,state FROM tasks WHERE issue=?", (issue,)).fetchone()
+    if task is None or task["state"] != "approved":
+        raise ValueError("schedule_approval_required")
+    row = db.execute("SELECT MAX(id) FROM events WHERE task_id=? AND action='approve'",
+                     (task["id"],)).fetchone()
+    if row is None or row[0] is None or (expected is not None and row[0] != expected):
+        raise ValueError("schedule_approval_revoked")
+    return row[0]
+
+
+@contextmanager
+def _read_db(path):
+    """Pure read: do not create files, change perms, migrate or enable WAL."""
+    path = Path(path)
+    parent = path.parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
+        raise PermissionError("unsafe ledger directory")
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+            or info.st_mode & 0o077 or info.st_nlink != 1):
+        raise PermissionError("unsafe ledger file")
+    uri = "file:" + quote(str(path.absolute()), safe="/") + "?mode=ro"
+    db = sqlite3.connect(uri, uri=True, timeout=10)
+    try:
+        db.row_factory = sqlite3.Row
+        if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='schedules'").fetchone() is None:
+            raise ValueError("schedule_schema_missing")
+        yield db
+    finally:
+        db.close()
 
 
 def parse_run_at(value, *, now=None):
@@ -52,6 +96,9 @@ def _ensure(db):
         run_at TEXT NOT NULL,
         dispatch_at TEXT NOT NULL,
         actor TEXT NOT NULL,
+        approval_event_id INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
         state TEXT NOT NULL CHECK(state IN
             ('scheduled','cancelled','claimed','blocked','launch_unconfirmed',
              'requested','finished','failed','interrupted')),
@@ -60,6 +107,13 @@ def _ensure(db):
         updated_at TEXT NOT NULL,
         UNIQUE(issue,dispatch_at)
     )""")
+    # Compatible with early Draft databases; migrations run only in write paths.
+    names = {item[1] for item in db.execute("PRAGMA table_info(schedules)")}
+    for name, ddl in (("approval_event_id", "INTEGER NOT NULL DEFAULT 0"),
+                      ("attempts", "INTEGER NOT NULL DEFAULT 0"),
+                      ("next_attempt_at", "TEXT")):
+        if name not in names:
+            db.execute("ALTER TABLE schedules ADD COLUMN " + name + " " + ddl)
     db.execute("CREATE INDEX IF NOT EXISTS schedules_due ON schedules(state,run_at)")
 
 
@@ -88,22 +142,24 @@ def create(ref, run_at, *, request_at=None, ledger_path=None, actor=None, now=No
     principal = actor or getpass.getuser()
     if type(principal) is not str or not principal or len(principal) > 128:
         raise ValueError("invalid_actor")
-    path = Path(ledger_path or DEFAULT_LEDGER)
+    path = globals()["ledger_path"](ledger_path)
     with TaskLedger(path) as ledger:
         db = ledger.db
         _ensure(db)
         db.execute("PRAGMA synchronous=FULL")
         db.execute("BEGIN IMMEDIATE")
         try:
+            approval = _approved(db, ref)
             record = _row(db, identity)
             if record is None:
                 stamp = _utc_now()
                 db.execute("""INSERT INTO schedules
-                    (schedule_id,issue,run_at,dispatch_at,actor,state,created_at,updated_at)
-                    VALUES(?,?,?,?,?,'scheduled',?,?)""",
-                    (identity, ref, due, dispatch_at, principal, stamp, stamp))
+                    (schedule_id,issue,run_at,dispatch_at,actor,approval_event_id,state,created_at,updated_at)
+                    VALUES(?,?,?,?,?, ?,'scheduled',?,?)""",
+                    (identity, ref, due, dispatch_at, principal, approval, stamp, stamp))
             else:
-                if record["issue"] != ref or record["run_at"] != due:
+                if (record["issue"] != ref or record["run_at"] != due
+                        or record["approval_event_id"] != approval):
                     raise ValueError("schedule_identity_conflict")
             db.execute("COMMIT")
         except BaseException:
@@ -113,9 +169,8 @@ def create(ref, run_at, *, request_at=None, ledger_path=None, actor=None, now=No
 
 
 def list_schedules(*, ledger_path=None):
-    with TaskLedger(Path(ledger_path or DEFAULT_LEDGER)) as ledger:
-        _ensure(ledger.db)
-        return [dict(row) for row in ledger.db.execute(
+    with _read_db(globals()["ledger_path"](ledger_path)) as db:
+        return [dict(row) for row in db.execute(
             "SELECT * FROM schedules ORDER BY run_at,schedule_id")]
 
 
@@ -123,9 +178,8 @@ def get(schedule_id, *, ledger_path=None):
     if type(schedule_id) is not str or len(schedule_id) != 64 or not all(
             char in "0123456789abcdef" for char in schedule_id):
         raise ValueError("invalid_schedule_id")
-    with TaskLedger(Path(ledger_path or DEFAULT_LEDGER)) as ledger:
-        _ensure(ledger.db)
-        record = _row(ledger.db, schedule_id)
+    with _read_db(globals()["ledger_path"](ledger_path)) as db:
+        record = _row(db, schedule_id)
     if record is None:
         raise ValueError("schedule_not_found")
     return record
@@ -155,7 +209,7 @@ def inspect(schedule_id, *, ledger_path=None, observer=None):
 
 def cancel(schedule_id, *, ledger_path=None):
     get(schedule_id, ledger_path=ledger_path)
-    with TaskLedger(Path(ledger_path or DEFAULT_LEDGER)) as ledger:
+    with TaskLedger(globals()["ledger_path"](ledger_path)) as ledger:
         db = ledger.db
         _ensure(db)
         db.execute("BEGIN IMMEDIATE")
@@ -185,7 +239,7 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
     if now.tzinfo is None:
         raise ValueError("timezone_required")
     cutoff = now.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
-    path = Path(ledger_path or DEFAULT_LEDGER)
+    path = globals()["ledger_path"](ledger_path)
     outcomes = []
     for _ in range(limit):
         with TaskLedger(path) as ledger:
@@ -196,11 +250,23 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
             try:
                 candidate = db.execute("""SELECT * FROM schedules
                     WHERE state='scheduled' AND run_at<=?
-                    ORDER BY run_at,schedule_id LIMIT 1""", (cutoff,)).fetchone()
+                      AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+                    ORDER BY run_at,schedule_id LIMIT 1""", (cutoff, cutoff)).fetchone()
                 if candidate is None:
                     db.execute("COMMIT")
                     break
                 record = dict(candidate)
+                try:
+                    _approved(db, record["issue"], expected=record["approval_event_id"])
+                except ValueError:
+                    db.execute("""UPDATE schedules SET state='blocked',receipt=?,updated_at=?
+                        WHERE schedule_id=? AND state='scheduled'""",
+                        (json.dumps({"code": "schedule_approval_revoked"}), _utc_now(),
+                         record["schedule_id"]))
+                    db.execute("COMMIT")
+                    outcomes.append({"schedule_id": record["schedule_id"], "state": "blocked",
+                                     "receipt": {"code": "schedule_approval_revoked"}})
+                    continue
                 db.execute("""UPDATE schedules SET state='claimed',updated_at=?
                     WHERE schedule_id=? AND state='scheduled'""",
                     (_utc_now(), record["schedule_id"]))
@@ -231,9 +297,19 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
             _ensure(db)
             db.execute("BEGIN IMMEDIATE")
             try:
-                db.execute("""UPDATE schedules SET state=?,receipt=?,updated_at=?
+                # A definitive busy response means submit wrote no durable request
+                # marker; it can be deferred without re-launch ambiguity.
+                if receipt["code"] == "busy" and record["attempts"] < MAX_BUSY_RETRIES:
+                    next_at = (now.astimezone(timezone.utc) + RETRY_DELAY).isoformat(
+                        timespec="microseconds").replace("+00:00", "Z")
+                    db.execute("""UPDATE schedules SET state='scheduled',attempts=attempts+1,
+                        next_attempt_at=?,receipt=?,updated_at=? WHERE schedule_id=? AND state='claimed'""",
+                        (next_at, json.dumps({"code": "busy_deferred"}), _utc_now(), record["schedule_id"]))
+                    state, receipt = "scheduled", {"code": "busy_deferred"}
+                else:
+                    db.execute("""UPDATE schedules SET state=?,receipt=?,updated_at=?
                     WHERE schedule_id=? AND state='claimed'""",
-                    (state, json.dumps(receipt), _utc_now(), record["schedule_id"]))
+                        (state, json.dumps(receipt), _utc_now(), record["schedule_id"]))
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
