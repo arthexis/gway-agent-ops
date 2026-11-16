@@ -25,9 +25,9 @@ def _extract(body: str, *, at: str, marker: str) -> dict | None:
     A matching marker alone does not authorize arbitrary user-supplied Markdown
     as a findings envelope. Validate and reconstruct the complete comment.
     """
-    if type(body) is not str or len(body) > MAX_COMMENT or "\\r" in body:
+    if type(body) is not str or len(body) > MAX_COMMENT or "\r" in body:
         return None
-    lines = body.split("\\n")
+    lines = body.split("\n")
     if len(lines) < 13 or lines[0] != f"Agent findings for {at}":
         return None
     if lines[1] != "" or not lines[2].startswith("**Summary:** "):
@@ -53,7 +53,7 @@ def _extract(body: str, *, at: str, marker: str) -> dict | None:
     validated = parse_findings(MARKER + json.dumps(candidate))
     if validated is None:
         return None
-    canonical = "\\n".join([
+    canonical = "\n".join([
         f"Agent findings for {at}", "",
         "**Summary:** " + validated["summary"], "",
         "**Findings:**", *["- " + s for s in validated["findings"]],
