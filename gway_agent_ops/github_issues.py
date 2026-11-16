@@ -17,17 +17,6 @@ class IssueRejected(ValueError):
         self.code = code
 
 
-TARGET_LABEL = "gway-001"
-
-
-def require_target_label(issue: dict) -> None:
-    labels = issue.get("labels")
-    if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
-        raise IssueRejected("invalid_issue_labels")
-    if TARGET_LABEL not in labels:
-        raise IssueRejected("target_label_missing")
-
-
 def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...] | None = None,
             creator: str = "arthexis", runner=subprocess.run) -> dict:
     """Fetch one trusted issue from any accessible GitHub repository.
@@ -37,7 +26,7 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
     """
     repository, number = parse_issue_ref(ref, repo)
     # The legacy allowed_repositories argument is ignored: GitHub access,
-    # trusted issue identity and exact labels are the admission authority.
+    # trusted issue identity is the admission authority; labels are optional task policy.
     if not REPOSITORY.fullmatch(repository) or any(s in (".", "..") for s in repository.split("/")):
         raise IssueRejected("invalid_issue_ref")
     try:

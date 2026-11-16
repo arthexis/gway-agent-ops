@@ -18,11 +18,11 @@ PAGE_SIZE = 100
 MAX_PAGES = 3
 
 
-def search_issues(*, label: str, creator: str = "arthexis",
+def search_issues(*, label: str | None = None, creator: str = "arthexis",
                   runner=subprocess.run) -> list[dict]:
-    if label not in SEARCH_LABELS or creator != "arthexis":
+    if (label is not None and label not in SEARCH_LABELS) or creator != "arthexis":
         raise IssueRejected("invalid_issue_search")
-    query = urlencode({"q": f"is:issue is:open author:{creator} label:{label}",
+    query = urlencode({"q": f"is:issue is:open author:{creator}" + (f" label:{label}" if label else ""),
                        "per_page": PAGE_SIZE})
     rows, seen = [], set()
     for page in range(1, MAX_PAGES + 1):
@@ -68,7 +68,7 @@ def search_issues(*, label: str, creator: str = "arthexis",
                                for x in labels)):
                     raise ValueError("invalid labels")
                 names = [x["name"] for x in labels]
-                if label not in names:
+                if label is not None and label not in names:
                     raise ValueError("missing requested label")
                 key = (repo, item["number"])
                 if key in seen:

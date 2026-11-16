@@ -3,7 +3,7 @@ import json
 import subprocess
 import unittest
 
-from gway_agent_ops.github_issues import IssueRejected, resolve, require_target_label
+from gway_agent_ops.github_issues import IssueRejected, resolve
 
 
 REPO = "arthexis/gway-lcd-sound"
@@ -35,14 +35,9 @@ class GithubIssueTests(unittest.TestCase):
         self.assertEqual(result["url"], f"https://github.com/{REPO}/issues/19")
         self.assertEqual(result["body"], "Build it")
 
-    def test_label_gate_exact_and_fail_closed(self):
-        for labels in ([], ["GWAY-001"], ["gway-001-extra"]):
-            with self.subTest(labels=labels), self.assertRaisesRegex(IssueRejected, "target_label_missing"):
-                require_target_label({"labels": labels})
-        for labels in (None, ["gway-001", None]):
-            with self.subTest(labels=labels), self.assertRaisesRegex(IssueRejected, "invalid_issue_labels"):
-                require_target_label({"labels": labels})
-        require_target_label({"labels": ["gway-001"]})
+    def test_unlabeled_trusted_issue_is_accepted(self):
+        result = resolve(f"{REPO}#19", runner=runner(payload(labels=[])))
+        self.assertEqual(result["labels"], [])
 
     def test_missing_label_metadata_is_invalid(self):
         body = payload()

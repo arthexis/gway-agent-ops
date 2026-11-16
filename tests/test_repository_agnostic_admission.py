@@ -54,15 +54,14 @@ def test_unregistered_private_other_org_with_trusted_author():
     {"owner": "attacker"},
     {"labels": []},
 ])
-def test_trust_labels_and_author_cannot_be_downgraded(overrides):
+def test_unlabeled_issue_allowed_but_author_still_required(overrides):
     item = metadata(**overrides)
     if overrides.get("owner") == "attacker":
         with pytest.raises(IssueRejected, match="creator_not_allowed"):
             resolve(REF, runner=gh_fixture(item))
     else:
         issue = resolve(REF, runner=gh_fixture(item))
-        with pytest.raises(IssueRejected, match="target_label_missing"):
-            preview(REF, resolver=lambda _: issue)
+        assert preview(REF, resolver=lambda _: issue)["issue"] == REF
 
 
 def test_submit_is_once_without_allowlist_or_real_systemd(tmp_path):
@@ -84,21 +83,28 @@ def test_submit_is_once_without_allowlist_or_real_systemd(tmp_path):
     assert len(calls) == 1
 
 
-def test_submit_rejects_missing_label_before_any_launch(tmp_path):
+def test_submit_accepts_unlabeled_issue_once(tmp_path):
+    calls = []
+    def fake_runner(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
     with patch("gway_agent_ops.nonblocking.resolve", return_value={
         "labels": []}), patch(
-        "gway_agent_ops.nonblocking._launch_prerequisites") as launch:
-        with pytest.raises(IssueRejected, match="target_label_missing"):
-            submit(REF, AT, state_dir=tmp_path / "state")
-        launch.assert_not_called()
+        "gway_agent_ops.nonblocking._launch_prerequisites", return_value="/fake/agent"), patch(
+        "gway_agent_ops.nonblocking._same_user_runtime_dir", return_value="/run/user/1000"):
+        first = submit(REF, AT, state_dir=tmp_path / "state", runner=fake_runner)
+        second = submit(REF, AT, state_dir=tmp_path / "state", runner=fake_runner)
+    assert first["state"] == "requested"
+    assert second["state"] == "already_requested"
+    assert len(calls) == 1
 
 
 def test_deployment_text_is_data_not_automatic_permission():
     issue = {"repository": "arthexis/ocpp-reports", "number": 211,
              "title": "Deploy in production", "body": "Run installers",
-             "labels": ["gway-001"]}
+             "labels": []}
     prompt = build_issue_prompt(issue)
     assert "READ-ONLY DEFAULT" in prompt
     assert "Do not modify files" in prompt
-    issue["labels"] = ["gway-001", "agentops:implementation"]
+    issue["labels"] = ["agentops:implementation"]
     assert "IMPLEMENTATION:" in build_issue_prompt(issue)

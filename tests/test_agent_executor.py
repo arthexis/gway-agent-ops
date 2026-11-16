@@ -155,12 +155,12 @@ class ExecutionTests(unittest.TestCase):
             self.call(timeout_seconds=0)
         self.assertFalse(self.state.exists())
 
-    def test_label_removed_before_execution_never_starts_codex(self):
-        from gway_agent_ops.github_issues import IssueRejected
+    def test_unlabeled_issue_executes_under_existing_admission(self):
         self.issue["labels"] = []
-        with self.assertRaisesRegex(IssueRejected, "target_label_missing"):
-            self.call()
-        self.assertFalse(self.state.exists())
+        result, seen = self.call()
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(len(seen), 1)
+        self.assertIn("READ-ONLY DEFAULT", seen[0][1]["input"])
 
     def test_issue_resolution_failure_prevents_dispatch(self):
         def blocked(*args, **kwargs):
