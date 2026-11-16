@@ -1,5 +1,22 @@
 # AgentOps #80 — Federated authorization acceptance proposal (READ-ONLY design)
 
+## Implemented local guard on PR #81 (2026-11-16)
+
+The AgentOps MCP stdio provider now refuses `schedule` and
+`schedule_cancel` with the sanitized
+`schedule_federated_principal_unavailable` error **before** calling the
+scheduler. This preserves CLI-local scheduling, existing immediate `submit`,
+and the read-only scheduled-list/get projections. The provider cannot infer an
+OAuth principal from its Unix installation identity, a tool argument, or an
+unenforced JSON context. Hermetic MCP tests verify no schedule creation or
+cancellation is dispatched when the verified principal channel is absent.
+
+This guard is deliberately temporary and must be removed **only together**
+with end-to-end trusted origin/principal delivery and independent node-side
+verification. Merely adding `principal_id` to tool arguments or copying the
+pure `FederatedAuthContextV1` dictionary is insufficient. No scheduler timer
+or remote scheduling write is activated by this change.
+
 This is a proposal for a **separate GWay Remote change**. Nothing in this
 document enables or modifies Remote's federation. No provider is installed.
 
