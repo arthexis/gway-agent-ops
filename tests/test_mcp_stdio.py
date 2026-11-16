@@ -24,7 +24,7 @@ class McpStdioTests(unittest.TestCase):
                           "run_at": "2026-11-20T16:00:00-06:00"}),
             ("schedule_cancel", {"schedule_id": "a" * 64}),
         )
-        with patch.object(scheduler, "create") as create, \\
+        with patch.object(scheduler, "create") as create, \
              patch.object(scheduler, "cancel") as cancel:
             for name, arguments in cases:
                 with self.subTest(name=name):
