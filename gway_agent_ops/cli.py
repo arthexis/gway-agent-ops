@@ -97,6 +97,8 @@ def build_parser():
     registry.add_argument("--json", action="store_true")
     registry.add_argument("--refresh-file", type=Path, help="Read a Remote deploy-targets JSON snapshot")
     registry.add_argument("--sync", action="store_true", help="Read installed gway-remote deploy-targets export")
+    ready = sub.add_parser("readiness", help="Inspect prerequisites in this process context; no dispatch")
+    ready.add_argument("--json", action="store_true")
     return parser
 
 
@@ -114,6 +116,15 @@ def main(argv=None):
         else:
             print("agent: runtime configuration is unavailable", file=sys.stderr)
         return 1
+    if args.command == "readiness":
+        from .readiness import check
+        data = check()
+        result = envelope("readiness", "ok" if data["ready"] else "degraded", data=data)
+        print(json_line(result) if args.json else "\n".join(
+            ["Agent Ops readiness (calling process):"] +
+            [f"  {key}: {value}" for key, value in data["checks"].items()] +
+            [data["context"], data["limitations"]]))
+        return 0 if data["ready"] else 1
     if args.command == "issue":
         try:
             parse_issue_ref(args.ref, args.repo)
