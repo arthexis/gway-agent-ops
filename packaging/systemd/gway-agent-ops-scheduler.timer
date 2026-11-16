@@ -1,0 +1,13 @@
+[Unit]
+Description=Check due AgentOps executions (opt-in)
+Documentation=https://github.com/arthexis/gway-agent-ops/issues/80
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=gway-agent-ops-scheduler.service
+
+[Install]
+WantedBy=timers.target
