@@ -394,21 +394,22 @@ before claim and cannot stop Codex after dispatch.
 
 **Deployment gate:** Do not enable `schedule-tick` automatically from the
 read-only `discover-worker`. A separately approved, AgentOps-owned user timer
-or service must explicitly invoke it after field validation; this Draft
-does not install or activate that timer. No autonomous time-based execution
-occurs until that separate service is deliberately installed.
+or service must explicitly invoke it after field validation; the canonical installer stages the user unit files but does **not** reload,
+enable or start them. No autonomous time-based execution occurs until the
+operator deliberately activates the timer.
 
 
-### Optional owner user timer (not installed by default)
+### Optional owner user timer (installed as files, disabled by default)
 
 The repository contains systemd user units in
 `packaging/systemd/gway-agent-ops-scheduler.service` and
 `packaging/systemd/gway-agent-ops-scheduler.timer`. They run the dedicated
 `agent schedule-tick` every minute, separately from read-only discovery.
-The canonical installer **does not** install or enable these units. After
-separate approval and verification on the owner node, an administrator may
-install them into the same installation user's `~/.config/systemd/user/`,
-reload the user manager, and explicitly enable the timer. Do not perform
+The canonical installer stages these unit files idempotently in the same
+installation user's `~/.config/systemd/user/`, but **never** reloads systemd,
+enables or starts the timer. After separate approval and verification on the
+owner node, an operator may reload the user manager and explicitly enable
+the timer. Do not perform
 this activation on Watchtower or satellites. This Draft changes no running
 services.
 
