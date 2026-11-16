@@ -123,6 +123,66 @@ class ResultRecoveryTests(unittest.TestCase):
         value = report(REF, AT, state_dir=self.root, runner=self.runner)
         self.assertEqual(value["report_state"], "invalid_report")
 
+    def test_deadline_shared_across_pages(self):
+        from gway_agent_ops.result_recovery import TOTAL_BUDGET_SECONDS, PAGE_TIMEOUT_SECONDS
+        unrelated = {"id": 9, "user": {"login": "arthexis"},
+                     "body": "Unrelated"}
+        calls = []
+        now = [0.0]
+        def clock():
+            return now[0]
+        def slow_page(argv, **kwargs):
+            calls.append(kwargs["timeout"])
+            self.assertGreater(kwargs["timeout"], 0)
+            self.assertLessEqual(kwargs["timeout"], PAGE_TIMEOUT_SECONDS)
+            now[0] += 4.0
+            return SimpleNamespace(returncode=0, stdout=json.dumps([unrelated] * 100))
+        result = report(REF, AT, state_dir=self.root, runner=slow_page, clock=clock)
+        self.assertEqual(result["report_state"], "timeout")
+        self.assertLessEqual(len(calls), 4)
+        self.assertEqual(calls[:3], [5.0, 5.0, 4.0])
+        self.assertLessEqual(now[0], TOTAL_BUDGET_SECONDS)
+
+    def test_subprocess_timeout_is_distinguished_from_github_failure(self):
+        import subprocess
+        def timed_out(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        result = report(REF, AT, state_dir=self.root, runner=timed_out, clock=lambda: 0.0)
+        self.assertEqual(result["report_state"], "timeout")
+        self.assertNotIn("findings", result)
+
+    def test_overrunning_runner_cannot_return_partial_findings(self):
+        now = [0.0]
+        def late(argv, **kwargs):
+            now[0] = 13.0
+            return SimpleNamespace(returncode=0, stdout=json.dumps([comment()]))
+        result = report(REF, AT, state_dir=self.root, runner=late, clock=lambda: now[0])
+        self.assertEqual(result["report_state"], "timeout")
+        self.assertNotIn("findings", result)
+
+    def test_existing_paginated_results_preserve_frozen_identity(self):
+        unrelated = {"id": 11, "user": {"login": "arthexis"},
+                     "body": "Unrelated"}
+        self.pages = [[unrelated] * 100, [comment()]]
+        deadlines = []
+        def bounded_runner(argv, **kwargs):
+            deadlines.append(kwargs["timeout"])
+            return self.runner(argv, **kwargs)
+        value = report(REF, AT, state_dir=self.root, runner=bounded_runner,
+                       clock=lambda: 0.0)
+        self.assertEqual(value["report_state"], "retrieved")
+        self.assertEqual(value["at"], AT)
+        self.assertEqual(value["findings"], FINDINGS)
+        self.assertEqual(deadlines, [5.0, 5.0])
+
+    def test_timeout_without_delivery_does_not_contact_network(self):
+        (self.root / "delivered" / (_key(REF, AT) + ".json")).unlink()
+        def forbidden(*args, **kwargs):
+            self.fail("GitHub must not be invoked")
+        value = report(REF, AT, state_dir=self.root, runner=forbidden,
+                       clock=lambda: 1000.0)
+        self.assertEqual(value["report_state"], "not_delivered")
+
     def test_mcp_report_is_read_only(self):
         tool = next(t for t in mcp_stdio.TOOLS if t["name"] == "report")
         self.assertTrue(tool["annotations"]["readOnlyHint"])
