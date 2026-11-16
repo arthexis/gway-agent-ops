@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from .dispatch import ISSUE, timestamp
@@ -15,6 +16,8 @@ from .observation import observe
 from .reporting import _key
 
 MAX_PAGES = 10
+TOTAL_BUDGET_SECONDS = 12.0
+PAGE_TIMEOUT_SECONDS = 5.0
 MAX_COMMENT = 16000
 TRUSTED_AUTHOR = "arthexis"
 
@@ -66,7 +69,7 @@ def _extract(body: str, *, at: str, marker: str) -> dict | None:
 
 
 def report(ref: str, at: str, *, state_dir: Path | None = None,
-           runner=subprocess.run) -> dict:
+           runner=subprocess.run, clock=time.monotonic) -> dict:
     """Recover validated structured findings; never dispatch or repair a report."""
     if type(ref) is not str or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
@@ -85,13 +88,24 @@ def report(ref: str, at: str, *, state_dir: Path | None = None,
     endpoint = f"repos/{repository}/issues/{number}/comments"
     marker = "agent-dispatch:" + _key(ref, at)
     matches = []
+    deadline = clock() + TOTAL_BUDGET_SECONDS
     for page in range(1, MAX_PAGES + 1):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return {**result, "report_state": "timeout"}
         try:
             response = runner(
                 ["gh", "api", f"{endpoint}?per_page=100&page={page}"],
-                capture_output=True, text=True, timeout=20, check=False)
-        except (OSError, subprocess.TimeoutExpired):
+                capture_output=True, text=True,
+                timeout=min(PAGE_TIMEOUT_SECONDS, remaining), check=False)
+        except subprocess.TimeoutExpired:
+            return {**result, "report_state": "timeout"}
+        except OSError:
             return {**result, "report_state": "github_unavailable"}
+        # An injected runner or a slowly completing request may exceed its
+        # advertised timeout. Never trust results outside our total budget.
+        if clock() >= deadline:
+            return {**result, "report_state": "timeout"}
         if response.returncode:
             return {**result, "report_state": "github_unavailable"}
         try:
@@ -116,12 +130,16 @@ def report(ref: str, at: str, *, state_dir: Path | None = None,
             if type(comment_id) is not int or comment_id < 1:
                 return {**result, "report_state": "invalid_report"}
             matches.append((comment_id, parsed))
+        if clock() >= deadline:
+            return {**result, "report_state": "timeout"}
         if len(matches) > 1:
             return {**result, "report_state": "ambiguous"}
         if len(rows) < 100:
             break
     else:
         return {**result, "report_state": "incomplete_search"}
+    if clock() >= deadline:
+        return {**result, "report_state": "timeout"}
     if len(matches) != 1:
         return {**result, "report_state": "not_found"}
     comment_id, findings = matches[0]
