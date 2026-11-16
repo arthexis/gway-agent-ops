@@ -142,7 +142,7 @@ def main(argv=None):
             elif args.command == "schedule-list":
                 data = {"schedules": scheduler.list_schedules()}
             elif args.command == "schedule-show":
-                data = scheduler.get(args.schedule_id)
+                data = scheduler.inspect(args.schedule_id)
             elif args.command == "schedule-cancel":
                 data = scheduler.cancel(args.schedule_id)
             else:
