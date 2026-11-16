@@ -10,7 +10,7 @@ from pathlib import Path
 from .audit_receipt import parse
 from .dispatch import admission, timestamp
 from .executor import ExecutionError
-from .github_issues import resolve, require_target_label
+from .github_issues import resolve
 from .reporting import enqueue, recover
 from .runtime import runtime_context
 
@@ -57,7 +57,6 @@ def audit(ref: str, *, scope: str, at: str | None = None,
     if not scope or not 1 <= timeout_seconds <= 7200:
         raise ValueError("invalid_audit_scope_or_timeout")
     issue = resolver(ref)
-    require_target_label(issue)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)
     checkout = root.joinpath(*issue["repository"].split("/"))

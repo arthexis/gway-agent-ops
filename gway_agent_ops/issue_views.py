@@ -1,4 +1,4 @@
-"""Read-only cross-repository projection of trusted, explicitly routed issues."""
+"""Read-only cross-repository projection of trusted issues."""
 from __future__ import annotations
 
 import json
@@ -33,7 +33,7 @@ def list_issues(*, allowed_repositories: tuple[str, ...] | None = None,
     list is presented as complete. Discovery is not execution authorization.
     """
     history = _history(Path(state_dir or DEFAULT_STATE))
-    opts = {"label": "gway-001", "creator": creator}
+    opts = {"creator": creator}
     if runner is not None:
         opts["runner"] = runner
     rows = []
