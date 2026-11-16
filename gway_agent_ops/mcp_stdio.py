@@ -35,7 +35,7 @@ TOOLS = (
                      "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
     {"name": "schedule", "description": "Persist a future one-shot issue invocation; requires gway:execute.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
-                     "run_at": {"type": "string"}}, "required": ["ref", "run_at"],
+                     "run_at": {"type": "string"}, "at": {"type": "string"}}, "required": ["ref", "run_at"],
                      "additionalProperties": False}},
     {"name": "scheduled_list", "description": "List scheduled tasks, without dispatch.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -58,7 +58,7 @@ def call_tool(name, args):
     schema = SCHEMAS.get(name)
     if schema is None or type(args) is not dict:
         raise ValueError("invalid_tool")
-    if set(args) != set(schema.get("required", ())):
+    if not set(schema.get("required", ())).issubset(args) or not set(args).issubset(schema.get("properties", {})):
         raise ValueError("invalid_arguments")
     if "ref" in args and (type(args["ref"]) is not str or not REF.fullmatch(args["ref"])):
         raise ValueError("invalid_issue_ref")
@@ -81,7 +81,7 @@ def call_tool(name, args):
         if name == "schedule":
             if type(args["run_at"]) is not str:
                 raise ValueError("invalid_run_at")
-            return scheduler.create(args["ref"], args["run_at"])
+            return scheduler.create(args["ref"], args["run_at"], request_at=args.get("at"))
         if name == "scheduled_list":
             return {"schedules": scheduler.list_schedules()}
         if name == "scheduled_get":
