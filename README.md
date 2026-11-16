@@ -357,3 +357,43 @@ Acceptance target: `agentops__preview` for
 does **not** run that issue, deploy Reports, change authentication or reach
 production. PR Ready/merge and AgentOps runtime deployment need separate
 approval.
+
+
+## Deferred one-shot scheduling (issue #80, Draft / opt-in)
+
+This feature is **not enabled automatically** by installation or issue discovery.
+Scheduling persists a one-shot job in the owner-private AgentOps SQLite ledger
+(`GWAY_AGENT_LEDGER_PATH` or `~/.local/state/gway-agent-ops/tasks.sqlite3`).
+It does not invoke Codex when a schedule is created.
+
+```sh
+agent schedule arthexis/ocpp-csms#355 --run-at 2026-11-20T16:00:00-06:00 --json
+agent schedule-list --json
+agent schedule-show SCHEDULE_ID --json
+agent schedule-cancel SCHEDULE_ID --json
+# Explicit opt-in scheduler pass only (not run by discovery):
+agent schedule-tick --json
+```
+
+The dedicated MCP tools are `schedule` and `schedule_cancel` (execute scope),
+and `scheduled_list` and `scheduled_get` (read scope).
+The caller must enforce `gway:execute` for write tools. AgentOps keeps the
+existing trusted issue and target-label gates; a schedule does not grant any
+production deploy or privileged host authorization. Only owner-managed
+`gway-001` is an initial eligible controller.
+
+Only timezone-qualified ISO-8601 instants within 90 days are accepted.
+`--run-at` specifies **not-before** scheduling, distinct from the frozen
+dispatch identity `--at`. Actual start may be later if unavailable.
+At due time, a scheduler tick records a durable `claimed` state **before**
+any external call, revalidates live issue trust, and submits through the
+existing one-shot nonblocking dispatcher. An interrupted claim, revoked
+trust, busy slot or uncertain launch is **not automatically retried**; inspect
+receipts before scheduling a new invocation. Cancellation only applies
+before claim and cannot stop Codex after dispatch.
+
+**Deployment gate:** Do not enable `schedule-tick` automatically from the
+read-only `discover-worker`. A separately approved, AgentOps-owned user timer
+or service must explicitly invoke it after field validation; this Draft
+does not install or activate that timer. No autonomous time-based execution
+occurs until that separate service is deliberately installed.
