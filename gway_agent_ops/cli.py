@@ -66,6 +66,9 @@ def build_parser():
     observation.add_argument("ref")
     observation.add_argument("--at", required=True)
     observation.add_argument("--json", action="store_true")
+    history_parser = sub.add_parser("history", help="List local accepted executions")
+    history_parser.add_argument("--limit", type=int, default=20, help="Maximum entries (1-1000)")
+    history_parser.add_argument("--json", action="store_true")
     for name in ("issues", "status"):
         sub.add_parser(name).add_argument("--json", action="store_true")
     adopt = sub.add_parser("adopt")
@@ -353,6 +356,27 @@ def main(argv=None):
         except (ValueError, OSError, IssueRejected, ExecutionError):
             result, code = envelope("preview", "error", error={"code": "preview_unavailable", "message": "Trusted prompt unavailable"}), 1
         print(json_line(result) if args.json else (data["prompt"] if code == 0 else "Prompt unavailable"))
+        return code
+    if args.command == "history":
+        from .history import history
+        try:
+            entries = history(limit=args.limit)
+            result, code = envelope("history", "ok", data={"executions": entries}), 0
+        except (ValueError, OSError, KeyError, TypeError):
+            result, code = envelope("history", "error", error={
+                "code": "history_unavailable", "message": "Execution history unavailable"}), 1
+        if args.json:
+            print(json_line(result))
+        elif code:
+            print("Execution history unavailable", file=sys.stderr)
+        elif not entries:
+            print("No accepted executions.")
+        else:
+            for item in entries:
+                delivery = ("delivered" if item["delivery_confirmed"] else
+                            "pending" if item["delivery_attempted"] else "not confirmed")
+                exit_code = item["exit_code"] if item["exit_code"] is not None else "-"
+                print(f'{item["at"]}  {item["issue"]}  {item["state"]}  exit={exit_code}  report={delivery}')
         return code
     if args.command == "observe":
         from .observation import observe
