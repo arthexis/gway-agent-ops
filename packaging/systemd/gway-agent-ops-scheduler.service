@@ -1,0 +1,14 @@
+[Unit]
+Description=AgentOps due one-shot scheduler tick (operator opt-in)
+Documentation=https://github.com/arthexis/gway-agent-ops/issues/80
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agent schedule-tick --json
+TimeoutStartSec=60
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+# Intentionally no WantedBy: activation is via the opt-in user timer.
