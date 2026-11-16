@@ -97,6 +97,7 @@ def build_parser():
     schedule = sub.add_parser("schedule", help="Persist a one-shot future execution; does not run Codex")
     schedule.add_argument("ref")
     schedule.add_argument("--run-at", required=True)
+    schedule.add_argument("--at", help="Frozen submission identity for idempotent transport retries")
     schedule.add_argument("--json", action="store_true")
     scheduled_list = sub.add_parser("schedule-list", help="List persisted schedules")
     scheduled_list.add_argument("--json", action="store_true")
@@ -137,7 +138,7 @@ def main(argv=None):
         from . import scheduler
         try:
             if args.command == "schedule":
-                data = scheduler.create(args.ref, args.run_at)
+                data = scheduler.create(args.ref, args.run_at, request_at=args.at)
             elif args.command == "schedule-list":
                 data = {"schedules": scheduler.list_schedules()}
             elif args.command == "schedule-show":
