@@ -248,3 +248,49 @@ def test_busy_retry_happens_only_after_cooldown(ledger):
                            resolver=trusted, submitter=busy)
     assert later["processed"] == 1
     assert len(calls) == 2
+
+
+def test_late_duplicate_delivery_does_not_create_second_schedule(ledger):
+    original = scheduler.create(REF, DUE, request_at=NOW.isoformat(),
+                                ledger_path=ledger, now=NOW, resolver=trusted)
+    delivered_late = scheduler.create(REF, DUE, request_at=NOW.isoformat(),
+                                     ledger_path=ledger,
+                                     now=NOW + timedelta(days=2), resolver=trusted)
+    assert original == delivered_late
+
+
+def test_approval_recheck_after_issue_lookup(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    def revoke_on_lookup(ref):
+        with TaskLedger(ledger) as entry:
+            entry.decide(REF, "veto_approved", actor="operator", reason="cancelled")
+        return trusted(ref)
+    outcome = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                             resolver=revoke_on_lookup,
+                             submitter=lambda *_a, **_k:
+                             pytest.fail("revoked during preflight"))
+    assert outcome["results"][0]["state"] == "blocked"
+
+
+def test_prior_unrelated_request_not_mistaken_for_our_run(ledger, monkeypatch):
+    from gway_agent_ops import observation
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    monkeypatch.setattr(observation, "observe", lambda *_a, **_k: {
+        "state": "requested", "source": "direct-cli", "trigger": "cli-submit"})
+    outcome = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                             resolver=trusted,
+                             submitter=lambda *_a, **_k: {"state": "already_requested"})
+    assert outcome["results"][0]["state"] == "blocked"
+    assert outcome["results"][0]["receipt"]["code"] == "identity_owned_by_other_submit"
+
+
+def test_reject_symlink_on_open_before_sqlite(tmp_path):
+    victim = tmp_path / "victim.sqlite"
+    victim.write_text("untouched")
+    path = tmp_path / "private"
+    path.mkdir(mode=0o700)
+    (path / "tasks.sqlite3").symlink_to(victim)
+    with pytest.raises(PermissionError):
+        with TaskLedger(path / "tasks.sqlite3"):
+            pass
+    assert victim.read_text() == "untouched"
