@@ -289,14 +289,25 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
             result = (submitter or submit)(record["issue"], record["dispatch_at"],
                 source="scheduled", trigger="scheduler-due")
             raw = result.get("state")
-            if raw == "requested" or raw == "already_requested":
+            if raw == "requested":
                 state = "requested"
+            elif raw == "already_requested":
+                # A matching issue/timestamp is not sufficient: an unrelated
+                # manual submission may already own that dispatch identity.
+                from .observation import observe
+                prior = observe(record["issue"], record["dispatch_at"])
+                if prior.get("source") == "scheduled" and prior.get("trigger") == "scheduler-due":
+                    state = "requested"
+                else:
+                    state = "blocked"
+                    raw = "identity_owned_by_other_submit"
             elif raw == "launch_unconfirmed":
                 state = "launch_unconfirmed"
             else:
                 state = "blocked"
             receipt = {"code": raw if raw in
-                ("requested","already_requested","launch_unconfirmed","busy") else "blocked"}
+                ("requested","already_requested","launch_unconfirmed","busy",
+                 "identity_owned_by_other_submit") else "blocked"}
         except (ValueError, OSError, RuntimeError) as exc:
             # No exception text in receipts: it can contain private data.
             receipt = {"code": "preflight_unavailable"}
