@@ -17,6 +17,7 @@ from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
 from .github_issues import IssueRejected
 from .observation import observe
+from .result_recovery import report as recover_report
 from .nonblocking import submit as issue_submit
 
 MAX_MESSAGE = 65536
@@ -33,6 +34,10 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
+    {"name": "report", "description": "Recover validated delivered findings for a frozen issue invocation; GitHub read-only.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "at": {"type": "string"}}, "required": ["ref", "at"],
+                     "additionalProperties": False}},
     {"name": "observe", "description": "Observe an existing frozen issue invocation.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
@@ -64,6 +69,10 @@ def call_tool(name, args):
             raise ValueError("invalid_timestamp")
         return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
+    if name == "report":
+        if type(args["at"]) is not str:
+            raise ValueError("invalid_timestamp")
+        return recover_report(args["ref"], args["at"])
     if name == "observe":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
