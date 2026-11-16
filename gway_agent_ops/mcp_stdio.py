@@ -18,6 +18,7 @@ from .issue_views import list_issues
 from .github_issues import IssueRejected
 from .observation import observe
 from .nonblocking import submit as issue_submit
+from .result_recovery import report as recover_report
 
 MAX_MESSAGE = 65536
 REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
@@ -45,6 +46,10 @@ TOOLS = (
     {"name": "schedule_cancel", "description": "Cancel an unclaimed schedule; requires gway:execute.",
      "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
                      "required": ["schedule_id"], "additionalProperties": False}},
+    {"name": "report", "description": "Recover validated delivered findings for a frozen issue invocation; GitHub read-only.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "at": {"type": "string"}}, "required": ["ref", "at"],
+                     "additionalProperties": False}},
     {"name": "observe", "description": "Observe an existing frozen issue invocation.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
@@ -87,6 +92,10 @@ def call_tool(name, args):
         if name == "scheduled_get":
             return scheduler.inspect(args["schedule_id"])
         return scheduler.cancel(args["schedule_id"])
+    if name == "report":
+        if type(args["at"]) is not str:
+            raise ValueError("invalid_timestamp")
+        return recover_report(args["ref"], args["at"])
     if name == "observe":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
