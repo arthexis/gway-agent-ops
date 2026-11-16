@@ -85,7 +85,7 @@ def call_tool(name, args):
         if name == "scheduled_list":
             return {"schedules": scheduler.list_schedules()}
         if name == "scheduled_get":
-            return scheduler.get(args["schedule_id"])
+            return scheduler.inspect(args["schedule_id"])
         return scheduler.cancel(args["schedule_id"])
     if name == "observe":
         if type(args["at"]) is not str:
