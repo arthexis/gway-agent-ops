@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from gway_agent_ops import scheduler
+from gway_agent_ops.task_ledger import TaskLedger
 
 REF = "arthexis/ocpp-csms#355"
 NOW = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
@@ -18,7 +19,11 @@ def trusted(_):
 
 @pytest.fixture
 def ledger(tmp_path):
-    return tmp_path / "private" / "tasks.sqlite3"
+    path = tmp_path / "private" / "tasks.sqlite3"
+    with TaskLedger(path) as entry:
+        entry.discover(REF)
+        entry.decide(REF, "approve", actor="operator")
+    return path
 
 
 def test_time_validation():
@@ -128,7 +133,8 @@ def test_cancel_claim_race_fails_closed(ledger):
         return {"state": "busy"}
     result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
                             resolver=trusted, submitter=submit_during_claim)
-    assert result["results"][0]["state"] == "blocked"
+    assert result["results"][0]["state"] == "scheduled"
+    assert result["results"][0]["receipt"]["code"] == "busy_deferred"
     assert scheduler.tick(ledger_path=ledger, now=NOW + timedelta(days=1),
                           resolver=trusted)["processed"] == 0
 
@@ -168,3 +174,76 @@ def test_competing_ticks_claim_once(ledger):
         results = list(pool.map(run, range(2)))
     assert sum(r["processed"] for r in results) == 1
     assert len(calls) == 1
+
+
+def test_unapproved_schedule_is_rejected(tmp_path):
+    path = tmp_path / "private" / "tasks.sqlite3"
+    with TaskLedger(path) as entry:
+        entry.discover(REF)
+    with pytest.raises(ValueError, match="schedule_approval_required"):
+        scheduler.create(REF, DUE, ledger_path=path, now=NOW, resolver=trusted)
+
+
+def test_approval_revocation_before_due(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    with TaskLedger(ledger) as entry:
+        entry.decide(REF, "veto_approved", actor="operator", reason="revoked")
+    result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                            resolver=trusted, submitter=lambda *_a, **_k:
+                            pytest.fail("revoked approval dispatched"))
+    assert result["results"][0]["state"] == "blocked"
+    assert scheduler.get(record["schedule_id"], ledger_path=ledger)["state"] == "blocked"
+
+
+def test_approval_replaced_never_reuses_old_schedule(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    with TaskLedger(ledger) as entry:
+        entry.decide(REF, "veto_approved", actor="operator", reason="revoked")
+        entry.decide(REF, "lift_veto", actor="operator")
+        entry.decide(REF, "approve", actor="operator")
+    result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                            resolver=trusted, submitter=lambda *_a, **_k:
+                            pytest.fail("old authorization reused"))
+    assert result["results"][0]["state"] == "blocked"
+    assert scheduler.get(record["schedule_id"], ledger_path=ledger)["state"] == "blocked"
+
+
+def test_ledger_environment_is_canonical(tmp_path, monkeypatch):
+    path = tmp_path / "custom" / "tasks.sqlite3"
+    monkeypatch.setenv("GWAY_AGENT_LEDGER_PATH", str(path))
+    assert scheduler.ledger_path() == path
+
+
+def test_pure_read_does_not_create_ledger(tmp_path):
+    path = tmp_path / "not_created" / "tasks.sqlite3"
+    with pytest.raises(OSError):
+        scheduler.list_schedules(ledger_path=path)
+    assert not path.exists()
+    assert not path.parent.exists()
+
+
+def test_private_db_symlink_rejected(ledger, tmp_path):
+    link = ledger.parent / "link.sqlite"
+    link.symlink_to(ledger)
+    with pytest.raises((OSError, PermissionError, ValueError)):
+        scheduler.list_schedules(ledger_path=link)
+
+
+def test_busy_retry_happens_only_after_cooldown(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    calls = []
+    def busy(*args, **kwargs):
+        calls.append(1)
+        return {"state": "busy"}
+    first = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=1),
+                           resolver=trusted, submitter=busy)
+    assert first["results"][0]["receipt"]["code"] == "busy_deferred"
+    assert scheduler.tick(ledger_path=ledger,
+                          now=NOW + timedelta(hours=1, minutes=1),
+                          resolver=trusted, submitter=busy)["processed"] == 0
+    assert len(calls) == 1
+    later = scheduler.tick(ledger_path=ledger,
+                           now=NOW + timedelta(hours=1, minutes=3),
+                           resolver=trusted, submitter=busy)
+    assert later["processed"] == 1
+    assert len(calls) == 2
