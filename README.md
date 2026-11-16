@@ -397,3 +397,21 @@ read-only `discover-worker`. A separately approved, AgentOps-owned user timer
 or service must explicitly invoke it after field validation; this Draft
 does not install or activate that timer. No autonomous time-based execution
 occurs until that separate service is deliberately installed.
+
+
+### Optional owner user timer (not installed by default)
+
+The repository contains systemd user units in
+`packaging/systemd/gway-agent-ops-scheduler.service` and
+`packaging/systemd/gway-agent-ops-scheduler.timer`. They run the dedicated
+`agent schedule-tick` every minute, separately from read-only discovery.
+The canonical installer **does not** install or enable these units. After
+separate approval and verification on the owner node, an administrator may
+install them into the same installation user's `~/.config/systemd/user/`,
+reload the user manager, and explicitly enable the timer. Do not perform
+this activation on Watchtower or satellites. This Draft changes no running
+services.
+
+For transport retries, preserve the exact frozen `--at` identity supplied
+at the first schedule request. A deliberate new scheduling action uses a
+new timestamp. The scheduler does not resubmit ambiguous/claimed work.
