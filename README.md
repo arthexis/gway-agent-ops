@@ -415,3 +415,28 @@ services.
 For transport retries, preserve the exact frozen `--at` identity supplied
 at the first schedule request. A deliberate new scheduling action uses a
 new timestamp. The scheduler does not resubmit ambiguous/claimed work.
+
+
+### Scheduling authorization and recovery (issue #80)
+
+Scheduling is denied unless the existing private `TaskLedger` contains the
+canonical issue in state `approved` with a durable operator `approve` event.
+The event ID is bound to the schedule. Both due-time claim and immediate
+pre-dispatch checks require that *same* approval generation; a veto,
+withdrawal, or approval after revocation cannot revive an old schedule.
+The normal GitHub open/trusted-creator and `gway-001` label gates still
+apply. Scheduling does **not** authorize an external production deployment.
+
+Use the canonical `GWAY_AGENT_LEDGER_PATH` when configured. Schedule list/get
+open the ledger read-only and do not create files, run DDL, or change its
+mode; schedule creation and scheduler ticks own schema migrations.
+The scheduler can defer a definitive `busy` response for two minutes, at most
+six times. It never retries unknown/ambiguous launches or claims left
+unresolved by a crash. Operator reconciliation remains necessary.
+
+**Federated OAuth admission:** the MCP write-tool annotations are only
+classification metadata, **not an authorization check by themselves**.
+GWay Remote must demonstrate denial of `schedule`/`schedule_cancel`
+with `gway:read` and dispatch only with `gway:execute`, at its provider
+authorization boundary, before rollout. The systemd timer remains opt-in;
+do not enable it until this check and owner runtime environment are verified.
