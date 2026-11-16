@@ -47,6 +47,12 @@ class IssueProjectionTests(unittest.TestCase):
     def view(self, comments=4):
         return list_issues(state_dir=self.state, runner=search_runner([page([issue(comments=comments)])]))
 
+    def test_unlabeled_issue_is_visible(self):
+        rows = list_issues(state_dir=self.state,
+                           runner=search_runner([page([{**issue(), "labels": []}])]))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["labels"], [])
+
     def test_cross_repository_trust_and_legacy_list_ignored(self):
         items = [issue(), issue(repo="other/private-repo", number=12)]
         rows = list_issues(allowed_repositories=("some/other",),
