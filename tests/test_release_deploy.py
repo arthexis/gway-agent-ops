@@ -31,7 +31,7 @@ class CanonicalDeployTests(unittest.TestCase):
         templates = self.source / "packaging/systemd"
         templates.mkdir(parents=True)
         for name in deployment.SCHEDULER_UNITS:
-            (templates / name).write_text("[Unit]\\nDescription=Owner scheduler fixture\\n")
+            (templates / name).write_text("[Unit]\nDescription=Owner scheduler fixture\n")
 
     def install(self, failing=None):
         def run(argv, **kwargs):
@@ -55,7 +55,7 @@ class CanonicalDeployTests(unittest.TestCase):
         units = self.home / ".config/systemd/user"
         for name in deployment.SCHEDULER_UNITS:
             self.assertEqual((units / name).read_text(),
-                             "[Unit]\\nDescription=Owner scheduler fixture\\n")
+                             "[Unit]\nDescription=Owner scheduler fixture\n")
         before = {name: (units / name).stat().st_ino
                   for name in deployment.SCHEDULER_UNITS}
         self.install()
