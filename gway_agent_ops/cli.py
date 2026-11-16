@@ -94,6 +94,20 @@ def build_parser():
     registry.add_argument("--json", action="store_true")
     registry.add_argument("--refresh-file", type=Path, help="Read a Remote deploy-targets JSON snapshot")
     registry.add_argument("--sync", action="store_true", help="Read installed gway-remote deploy-targets export")
+    schedule = sub.add_parser("schedule", help="Persist a one-shot future execution; does not run Codex")
+    schedule.add_argument("ref")
+    schedule.add_argument("--run-at", required=True)
+    schedule.add_argument("--json", action="store_true")
+    scheduled_list = sub.add_parser("schedule-list", help="List persisted schedules")
+    scheduled_list.add_argument("--json", action="store_true")
+    scheduled_show = sub.add_parser("schedule-show", help="Inspect one schedule")
+    scheduled_show.add_argument("schedule_id")
+    scheduled_show.add_argument("--json", action="store_true")
+    scheduled_cancel = sub.add_parser("schedule-cancel", help="Cancel an unclaimed schedule")
+    scheduled_cancel.add_argument("schedule_id")
+    scheduled_cancel.add_argument("--json", action="store_true")
+    scheduled_tick = sub.add_parser("schedule-tick", help="Explicit opt-in scheduler pass")
+    scheduled_tick.add_argument("--json", action="store_true")
     return parser
 
 
@@ -118,6 +132,28 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command in ("schedule", "schedule-list", "schedule-show",
+                        "schedule-cancel", "schedule-tick"):
+        from . import scheduler
+        try:
+            if args.command == "schedule":
+                data = scheduler.create(args.ref, args.run_at)
+            elif args.command == "schedule-list":
+                data = {"schedules": scheduler.list_schedules()}
+            elif args.command == "schedule-show":
+                data = scheduler.get(args.schedule_id)
+            elif args.command == "schedule-cancel":
+                data = scheduler.cancel(args.schedule_id)
+            else:
+                data = scheduler.tick()
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            result, code = envelope(args.command, "error", error={
+                "code": "schedule_unavailable",
+                "message": "Schedule operation failed or admission was denied"}), 1
+        print(json_line(result) if args.json else
+              (str(data) if code == 0 else "Schedule unavailable"))
+        return code
     if args.command == "discover-worker":
         from .discovery_worker import run_forever
         import signal
