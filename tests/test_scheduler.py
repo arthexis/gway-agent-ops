@@ -72,12 +72,28 @@ def test_at_most_once_across_restarts(ledger):
 def test_revoked_trust_never_dispatches(ledger):
     record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
     def revoked(_):
-        return {"labels": [], "state": "open", "creator": "arthexis"}
+        return {"labels": [], "state": "closed", "creator": "arthexis"}
     result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
                              resolver=revoked,
                              submitter=lambda *_a, **_k: pytest.fail("dispatch forbidden"))
     assert result["results"][0]["state"] == "blocked"
     assert scheduler.get(record["schedule_id"], ledger_path=ledger)["state"] == "blocked"
+
+
+def test_unlabeled_trusted_issue_remains_eligible(ledger):
+    unlabeled = lambda _ref: {"labels": [], "state": "open", "creator": "arthexis"}
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=unlabeled)
+    assert record["state"] == "scheduled"
+    outcomes = scheduler.tick(
+        ledger_path=ledger, now=NOW + timedelta(hours=2), resolver=unlabeled,
+        submitter=lambda *_a, **_k: {"state": "requested"})
+    assert outcomes["results"][0]["state"] == "requested"
+
+
+def test_untrusted_author_fails_closed(ledger):
+    foreign = lambda _ref: {"labels": ["gway-001"], "state": "open", "creator": "other"}
+    with pytest.raises(ValueError, match="untrusted_issue"):
+        scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=foreign)
 
 
 def test_ambiguous_and_busy_are_not_retried(ledger):
