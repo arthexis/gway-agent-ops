@@ -378,7 +378,7 @@ agent schedule-tick --json
 The dedicated MCP tools are `schedule` and `schedule_cancel` (execute scope),
 and `scheduled_list` and `scheduled_get` (read scope).
 The caller must enforce `gway:execute` for write tools. AgentOps keeps the
-existing trusted issue and target-label gates; a schedule does not grant any
+existing trusted issue and approval gates (routing labels are optional); a schedule does not grant any
 production deploy or privileged host authorization. Only owner-managed
 `gway-001` is an initial eligible controller.
 
