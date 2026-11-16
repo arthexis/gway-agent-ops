@@ -104,3 +104,36 @@ def test_mcp_annotations():
     assert by_name["schedule_cancel"]["annotations"]["readOnlyHint"] is False
     assert by_name["scheduled_list"]["annotations"]["readOnlyHint"] is True
     assert by_name["scheduled_get"]["annotations"]["readOnlyHint"] is True
+
+
+def test_frozen_transport_identity_is_idempotent(ledger):
+    request_at = NOW.isoformat()
+    first = scheduler.create(REF, DUE, request_at=request_at,
+                             ledger_path=ledger, now=NOW, resolver=trusted)
+    second = scheduler.create(REF, DUE, request_at=request_at,
+                              ledger_path=ledger, now=NOW, resolver=trusted)
+    assert first == second
+    assert len(scheduler.list_schedules(ledger_path=ledger)) == 1
+    with pytest.raises(ValueError, match="schedule_identity_conflict"):
+        scheduler.create(REF, (NOW + timedelta(hours=2)).isoformat(),
+                         request_at=request_at, ledger_path=ledger, now=NOW,
+                         resolver=trusted)
+
+
+def test_cancel_claim_race_fails_closed(ledger):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    def submit_during_claim(ref, at, **kwargs):
+        with pytest.raises(ValueError, match="schedule_not_cancellable"):
+            scheduler.cancel(record["schedule_id"], ledger_path=ledger)
+        return {"state": "busy"}
+    result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                            resolver=trusted, submitter=submit_during_claim)
+    assert result["results"][0]["state"] == "blocked"
+    assert scheduler.tick(ledger_path=ledger, now=NOW + timedelta(days=1),
+                          resolver=trusted)["processed"] == 0
+
+
+def test_mcp_rejects_unrecognized_schedule_args():
+    from gway_agent_ops.mcp_stdio import call_tool
+    with pytest.raises(ValueError, match="invalid_arguments"):
+        call_tool("schedule", {"ref": REF, "run_at": DUE, "command": "rm -rf /"})
