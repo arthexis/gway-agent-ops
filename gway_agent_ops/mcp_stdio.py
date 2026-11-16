@@ -1,7 +1,7 @@
-"""Read-only MCP stdio provider owned by AgentOps.
+"""MCP stdio provider owned by AgentOps.
 
-No mutation tools are registered. GWay Remote applies independent source
-registration, release pinning, namespacing and OAuth authorization.
+GWay Remote authenticates and authorizes federated tool calls; this provider
+preserves live issue, approval, and execution gates.
 """
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
 from .github_issues import IssueRejected
 from .observation import observe
-from .result_recovery import report as recover_report
 from .nonblocking import submit as issue_submit
+from .result_recovery import report as recover_report
 
 MAX_MESSAGE = 65536
 REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
@@ -34,6 +34,18 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
+    {"name": "schedule", "description": "Persist a future one-shot issue invocation; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "run_at": {"type": "string"}, "at": {"type": "string"}}, "required": ["ref", "run_at"],
+                     "additionalProperties": False}},
+    {"name": "scheduled_list", "description": "List scheduled tasks, without dispatch.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "scheduled_get", "description": "Read a schedule by opaque identifier.",
+     "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
+                     "required": ["schedule_id"], "additionalProperties": False}},
+    {"name": "schedule_cancel", "description": "Cancel an unclaimed schedule; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
+                     "required": ["schedule_id"], "additionalProperties": False}},
     {"name": "report", "description": "Recover validated delivered findings for a frozen issue invocation; GitHub read-only.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
@@ -43,7 +55,7 @@ TOOLS = (
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}},
 )
-TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] != "submit"}} for tool in TOOLS)
+TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in ("submit", "schedule", "schedule_cancel")}} for tool in TOOLS)
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
@@ -51,7 +63,7 @@ def call_tool(name, args):
     schema = SCHEMAS.get(name)
     if schema is None or type(args) is not dict:
         raise ValueError("invalid_tool")
-    if set(args) != set(schema.get("required", ())):
+    if not set(schema.get("required", ())).issubset(args) or not set(args).issubset(schema.get("properties", {})):
         raise ValueError("invalid_arguments")
     if "ref" in args and (type(args["ref"]) is not str or not REF.fullmatch(args["ref"])):
         raise ValueError("invalid_issue_ref")
@@ -69,6 +81,17 @@ def call_tool(name, args):
             raise ValueError("invalid_timestamp")
         return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
+    if name in ("schedule", "scheduled_list", "scheduled_get", "schedule_cancel"):
+        from . import scheduler
+        if name == "schedule":
+            if type(args["run_at"]) is not str:
+                raise ValueError("invalid_run_at")
+            return scheduler.create(args["ref"], args["run_at"], request_at=args.get("at"))
+        if name == "scheduled_list":
+            return {"schedules": scheduler.list_schedules()}
+        if name == "scheduled_get":
+            return scheduler.inspect(args["schedule_id"])
+        return scheduler.cancel(args["schedule_id"])
     if name == "report":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
@@ -83,13 +106,15 @@ def call_tool(name, args):
 _SAFE_CODES = frozenset({
     "repository_allowlist_missing", "invalid_repository_allowlist",
     "repository_not_allowed", "github_unavailable", "issue_not_open",
-    "not_an_issue", "creator_not_allowed",
+    "not_an_issue", "creator_not_allowed", "target_label_missing",
     "invalid_issue_ref", "invalid_arguments", "invalid_tool",
     "invalid_timestamp", "invalid_github_response", "invalid_issue",
     "invalid_issue_labels", "repository_mismatch", "issue_mismatch",
     "agent_cli_not_found", "agent_workspace_not_configured",
     "agent_workspace_unavailable", "agent_workspace_unsafe",
     "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
+    "invalid_run_at", "timezone_required", "run_at_out_of_range",
+    "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
 })
 
 

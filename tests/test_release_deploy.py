@@ -28,6 +28,10 @@ class CanonicalDeployTests(unittest.TestCase):
         self.entry.symlink_to(self.releases / self.old_sha / "bin/agent")
         self.source = self.home / "source"
         self.source.mkdir()
+        templates = self.source / "packaging/systemd"
+        templates.mkdir(parents=True)
+        for name in deployment.SCHEDULER_UNITS:
+            (templates / name).write_text("[Unit]\nDescription=Owner scheduler fixture\n")
 
     def install(self, failing=None):
         def run(argv, **kwargs):
@@ -45,6 +49,28 @@ class CanonicalDeployTests(unittest.TestCase):
         self.assertEqual((self.root / "previous").resolve(), self.releases / self.old_sha)
         self.assertEqual([r["sha"] for r in deployment._read_history(self.root)], [self.sha])
         self.assertTrue((self.releases / self.old_sha).exists())
+
+    def test_scheduler_units_are_installed_idempotently_without_activation(self):
+        self.install()
+        units = self.home / ".config/systemd/user"
+        for name in deployment.SCHEDULER_UNITS:
+            self.assertEqual((units / name).read_text(),
+                             "[Unit]\nDescription=Owner scheduler fixture\n")
+        before = {name: (units / name).stat().st_ino
+                  for name in deployment.SCHEDULER_UNITS}
+        self.install()
+        self.assertEqual(before, {name: (units / name).stat().st_ino
+                                  for name in deployment.SCHEDULER_UNITS})
+        self.assertFalse((units / "timers.target.wants").exists())
+
+    def test_scheduler_units_reject_symlink_and_restore_cli(self):
+        units = self.home / ".config/systemd/user"
+        units.mkdir(parents=True)
+        (units / deployment.SCHEDULER_UNITS[0]).symlink_to(self.source)
+        with self.assertRaises(ValueError):
+            self.install()
+        self.assertEqual(self.entry.resolve(), self.releases / self.old_sha / "bin/agent")
+        self.assertFalse((self.root / "current").exists())
 
     def test_failed_installed_probe_restores_prior_link(self):
         with self.assertRaises(subprocess.CalledProcessError):

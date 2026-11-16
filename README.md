@@ -359,6 +359,90 @@ does **not** run that issue, deploy Reports, change authentication or reach
 production. PR Ready/merge and AgentOps runtime deployment need separate
 approval.
 
+
+## Deferred one-shot scheduling (issue #80, Draft / opt-in)
+
+This feature is **not enabled automatically** by installation or issue discovery.
+Scheduling persists a one-shot job in the owner-private AgentOps SQLite ledger
+(`GWAY_AGENT_LEDGER_PATH` or `~/.local/state/gway-agent-ops/tasks.sqlite3`).
+It does not invoke Codex when a schedule is created.
+
+```sh
+agent schedule arthexis/ocpp-csms#355 --run-at 2026-11-20T16:00:00-06:00 --json
+agent schedule-list --json
+agent schedule-show SCHEDULE_ID --json
+agent schedule-cancel SCHEDULE_ID --json
+# Explicit opt-in scheduler pass only (not run by discovery):
+agent schedule-tick --json
+```
+
+The dedicated MCP tools are `schedule` and `schedule_cancel` (execute scope),
+and `scheduled_list` and `scheduled_get` (read scope).
+The caller must enforce `gway:execute` for write tools. AgentOps keeps the
+existing trusted issue and approval gates (routing labels are optional); a schedule does not grant any
+production deploy or privileged host authorization. Only owner-managed
+`gway-001` is an initial eligible controller.
+
+Only timezone-qualified ISO-8601 instants within 90 days are accepted.
+`--run-at` specifies **not-before** scheduling, distinct from the frozen
+dispatch identity `--at`. Actual start may be later if unavailable.
+At due time, a scheduler tick records a durable `claimed` state **before**
+any external call, revalidates live issue trust, and submits through the
+existing one-shot nonblocking dispatcher. An interrupted claim, revoked
+trust, busy slot or uncertain launch is **not automatically retried**; inspect
+receipts before scheduling a new invocation. Cancellation only applies
+before claim and cannot stop Codex after dispatch.
+
+**Deployment gate:** Do not enable `schedule-tick` automatically from the
+read-only `discover-worker`. A separately approved, AgentOps-owned user timer
+or service must explicitly invoke it after field validation; the canonical installer stages the user unit files but does **not** reload,
+enable or start them. No autonomous time-based execution occurs until the
+operator deliberately activates the timer.
+
+
+### Optional owner user timer (installed as files, disabled by default)
+
+The repository contains systemd user units in
+`packaging/systemd/gway-agent-ops-scheduler.service` and
+`packaging/systemd/gway-agent-ops-scheduler.timer`. They run the dedicated
+`agent schedule-tick` every minute, separately from read-only discovery.
+The canonical installer stages these unit files idempotently in the same
+installation user's `~/.config/systemd/user/`, but **never** reloads systemd,
+enables or starts the timer. After separate approval and verification on the
+owner node, an operator may reload the user manager and explicitly enable
+the timer. Do not perform
+this activation on Watchtower or satellites. This Draft changes no running
+services.
+
+For transport retries, preserve the exact frozen `--at` identity supplied
+at the first schedule request. A deliberate new scheduling action uses a
+new timestamp. The scheduler does not resubmit ambiguous/claimed work.
+
+
+### Scheduling authorization and recovery (issue #80)
+
+Scheduling is denied unless the existing private `TaskLedger` contains the
+canonical issue in state `approved` with a durable operator `approve` event.
+The event ID is bound to the schedule. Both due-time claim and immediate
+pre-dispatch checks require that *same* approval generation; a veto,
+withdrawal, or approval after revocation cannot revive an old schedule.
+The normal GitHub open/trusted-creator and `gway-001` label gates still
+apply. Scheduling does **not** authorize an external production deployment.
+
+Use the canonical `GWAY_AGENT_LEDGER_PATH` when configured. Schedule list/get
+open the ledger read-only and do not create files, run DDL, or change its
+mode; schedule creation and scheduler ticks own schema migrations.
+The scheduler can defer a definitive `busy` response for two minutes, at most
+six times. It never retries unknown/ambiguous launches or claims left
+unresolved by a crash. Operator reconciliation remains necessary.
+
+**Federated OAuth admission:** the MCP write-tool annotations are only
+classification metadata, **not an authorization check by themselves**.
+GWay Remote must demonstrate denial of `schedule`/`schedule_cancel`
+with `gway:read` and dispatch only with `gway:execute`, at its provider
+authorization boundary, before rollout. The systemd timer remains opt-in;
+do not enable it until this check and owner runtime environment are verified.
+
 ## Local execution history
 
 Use `agent history` to list accepted local Agent Ops executions, newest first.

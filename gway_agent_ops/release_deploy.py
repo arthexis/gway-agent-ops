@@ -125,6 +125,45 @@ def _probe(link, *, run=subprocess.run):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+SCHEDULER_UNITS = ("gway-agent-ops-scheduler.service", "gway-agent-ops-scheduler.timer")
+
+
+def _install_scheduler_units(source, home):
+    """Publish private user unit files; never enable, start or reload systemd."""
+    root = home / ".config"
+    for child in (root, root / "systemd", root / "systemd/user"):
+        if child.is_symlink():
+            raise ValueError("unsafe scheduler unit directory")
+        child.mkdir(mode=0o700, exist_ok=True)
+        _directory(child)
+    for name in SCHEDULER_UNITS:
+        template = source / "packaging/systemd" / name
+        stat_info = template.lstat()
+        if not stat.S_ISREG(stat_info.st_mode) or stat_info.st_size > 8192:
+            raise ValueError("invalid scheduler unit template")
+        data = template.read_bytes()
+        dest = root / "systemd/user" / name
+        if dest.is_symlink():
+            raise ValueError("unsafe scheduler unit destination")
+        if dest.exists():
+            info = dest.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
+                raise ValueError("unsafe scheduler unit destination")
+            if dest.read_bytes() == data:
+                continue
+        temp = dest.parent / ("." + name + "." + uuid.uuid4().hex)
+        try:
+            fd = os.open(temp, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp, dest)
+        finally:
+            temp.unlink(missing_ok=True)
+
+
 def install(source, *, expected_sha=None, home=None, run=subprocess.run):
     source = Path(source).resolve(strict=True)
     home = Path(home) if home is not None else Path.home()
@@ -175,6 +214,7 @@ def install(source, *, expected_sha=None, home=None, run=subprocess.run):
             if entry.resolve(strict=True) != exe:
                 raise ValueError("installed activation mismatch")
             _probe(entry, run=run)
+            _install_scheduler_units(source, home)
         except Exception:
             # Restore previous entry before releasing the installation lock.
             if old is not None and old != destination:

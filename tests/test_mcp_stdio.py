@@ -10,9 +10,37 @@ class McpStdioTests(unittest.TestCase):
     def test_catalog_classifies_mutation(self):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
-        self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit"})
-        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] != "submit")
+        self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit",
+                                 "schedule", "scheduled_list", "scheduled_get", "schedule_cancel"})
+        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in ("submit", "schedule", "schedule_cancel"))
                             for tool in response["result"]["tools"]))
+
+    def test_scheduled_mcp_routes_reuse_existing_scheduler_authority(self):
+        # The federated gateway enforces gway:execute; the provider must not
+        # invent a second per-principal authorization policy.
+        from gway_agent_ops import scheduler
+        cases = (
+            ("schedule", {"ref": "arthexis/gway-agent-ops#80",
+                          "run_at": "2026-11-20T16:00:00-06:00"},
+             "create", {"schedule_id": "a" * 64}),
+            ("schedule_cancel", {"schedule_id": "a" * 64},
+             "cancel", {"state": "cancelled"}),
+        )
+        for name, arguments, target, expected in cases:
+            with self.subTest(name=name), patch.object(scheduler, target,
+                                                      return_value=expected) as action:
+                response = mcp_stdio.handle({
+                    "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                    "params": {"name": name, "arguments": arguments},
+                })
+                self.assertFalse(response["result"].get("isError", False))
+                self.assertEqual(json.loads(response["result"]["content"][0]["text"]),
+                                 expected)
+                if name == "schedule":
+                    action.assert_called_once_with(arguments["ref"], arguments["run_at"],
+                                                   request_at=None)
+                else:
+                    action.assert_called_once_with(arguments["schedule_id"])
 
     def test_submit_missing_arguments_cannot_be_called(self):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 2,

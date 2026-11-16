@@ -21,12 +21,24 @@ class TaskLedger:
     def __init__(self, path: Path):
         self.path = Path(path)
         _private_directory(self.path.parent)
+        # Check before SQLite opens the path: an existing symlink must never
+        # redirect database creation or WAL writes to another location.
+        if self.path.is_symlink():
+            raise PermissionError("unsafe ledger symlink")
+        if self.path.exists():
+            prior = self.path.lstat()
+            if (not stat.S_ISREG(prior.st_mode) or prior.st_uid != os.getuid()
+                    or prior.st_nlink != 1 or prior.st_mode & 0o077):
+                raise PermissionError("ledger must be an owned private regular file")
+        else:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+            os.close(fd)
         self.db = sqlite3.connect(self.path, isolation_level=None, timeout=10)
         info = self.path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_nlink != 1 or info.st_mode & 0o077):
             self.db.close()
-            raise PermissionError("ledger must be an owned regular file")
-        os.chmod(self.path, 0o600)
+            raise PermissionError("ledger must be an owned private regular file")
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA busy_timeout=10000")
         self.db.execute("PRAGMA journal_mode=WAL")
