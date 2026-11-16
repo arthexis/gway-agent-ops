@@ -131,6 +131,28 @@ def get(schedule_id, *, ledger_path=None):
     return record
 
 
+
+def inspect(schedule_id, *, ledger_path=None, observer=None):
+    """Read-only projection of execution evidence without changing the ledger."""
+    record = get(schedule_id, ledger_path=ledger_path)
+    if record["state"] not in ("requested", "launch_unconfirmed", "claimed"):
+        return record
+    from .observation import observe
+    try:
+        result = (observer or observe)(record["issue"], record["dispatch_at"])
+        state = result.get("state")
+        # The actual dispatch journal remains authoritative for execution.
+        if state in ("requested", "launch_unconfirmed", "accepted", "finished",
+                     "codex_failed", "interrupted", "released", "unknown"):
+            return {**record, "execution_state": state,
+                    "execution_terminal": state in
+                    ("finished", "codex_failed", "interrupted", "released")}
+    except (ValueError, OSError, KeyError, TypeError):
+        pass
+    return {**record, "execution_state": "unavailable",
+            "execution_terminal": False}
+
+
 def cancel(schedule_id, *, ledger_path=None):
     get(schedule_id, ledger_path=ledger_path)
     with TaskLedger(Path(ledger_path or DEFAULT_LEDGER)) as ledger:
