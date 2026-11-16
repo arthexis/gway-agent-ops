@@ -135,8 +135,9 @@ def test_cancel_claim_race_fails_closed(ledger):
                             resolver=trusted, submitter=submit_during_claim)
     assert result["results"][0]["state"] == "scheduled"
     assert result["results"][0]["receipt"]["code"] == "busy_deferred"
-    assert scheduler.tick(ledger_path=ledger, now=NOW + timedelta(days=1),
-                          resolver=trusted)["processed"] == 0
+    assert scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2, minutes=1),
+                          resolver=trusted,
+                          submitter=lambda *_a, **_k: pytest.fail("premature retry"))["processed"] == 0
 
 
 def test_mcp_rejects_unrecognized_schedule_args():
