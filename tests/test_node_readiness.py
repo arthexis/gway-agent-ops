@@ -50,6 +50,7 @@ def test_release_directory_requires_pinned_revision(tmp_path):
     exe = target / "bin/agent-mcp"
     exe.parent.mkdir(parents=True)
     exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
     current = tmp_path / ".local/share/gway-agent-ops/current"
     current.symlink_to(target, target_is_directory=True)
     with patch.object(node_readiness.shutil, "which", return_value=None):
