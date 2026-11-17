@@ -11,8 +11,12 @@ class McpStdioTests(unittest.TestCase):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
         self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit",
-                                 "schedule", "scheduled_list", "scheduled_get", "schedule_cancel"})
-        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in ("submit", "schedule", "schedule_cancel"))
+                                 "schedule", "scheduled_list", "scheduled_get", "schedule_cancel",
+                                 "recurring_create", "recurring_list", "recurring_get",
+                                 "recurring_pause", "recurring_resume", "recurring_cancel"})
+        writes = ("submit", "schedule", "schedule_cancel", "recurring_create",
+                  "recurring_pause", "recurring_resume", "recurring_cancel")
+        self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in writes)
                             for tool in response["result"]["tools"]))
 
     def test_scheduled_mcp_routes_reuse_existing_scheduler_authority(self):
@@ -41,6 +45,35 @@ class McpStdioTests(unittest.TestCase):
                                                    request_at=None)
                 else:
                     action.assert_called_once_with(arguments["schedule_id"])
+
+    def test_recurring_mcp_types_and_lifecycle(self):
+        from gway_agent_ops import recurring_store
+        definition_id = "a" * 64
+        cases = (
+            ("recurring_create", {"ref": "arthexis/ocpp-csms#346", "every": "1h"},
+             "define", {"id": definition_id}),
+            ("recurring_get", {"definition_id": definition_id},
+             "get", {"id": definition_id}),
+            ("recurring_pause", {"definition_id": definition_id},
+             "transition", {"state": "paused"}),
+            ("recurring_resume", {"definition_id": definition_id},
+             "transition", {"state": "active"}),
+            ("recurring_cancel", {"definition_id": definition_id},
+             "transition", {"state": "cancelled"}),
+        )
+        for name, args, target, expected in cases:
+            with self.subTest(name=name), patch.object(recurring_store, target,
+                                                      return_value=expected):
+                response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 5,
+                    "method": "tools/call",
+                    "params": {"name": name, "arguments": args}})
+                self.assertFalse(response["result"].get("isError"))
+                self.assertEqual(json.loads(response["result"]["content"][0]["text"]), expected)
+        invalid = mcp_stdio.handle({"jsonrpc": "2.0", "id": 6,
+            "method": "tools/call",
+            "params": {"name": "recurring_create", "arguments": {
+                "ref": "arthexis/ocpp-csms#346", "every": 123}}})
+        self.assertTrue(invalid["result"]["isError"])
 
     def test_submit_missing_arguments_cannot_be_called(self):
         result = mcp_stdio.handle({"jsonrpc": "2.0", "id": 2,
