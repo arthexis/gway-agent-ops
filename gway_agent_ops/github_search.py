@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 from .github_issues import IssueRejected, REPOSITORY
 
-SEARCH_LABELS = frozenset({"gway-001", "local-agent"})
+SEARCH_LABELS = frozenset({"gway-001", "gway-004", "local-agent"})
 PAGE_SIZE = 100
 MAX_PAGES = 3
 
