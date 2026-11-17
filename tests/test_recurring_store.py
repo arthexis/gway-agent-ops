@@ -118,3 +118,42 @@ def test_competing_issue_writers_and_reopen(path):
     with ThreadPoolExecutor(max_workers=4) as pool:
         assert set(pool.map(create, range(12))) == {REF}
     assert len(recurring_store.snapshot(path=path)["issues"]) == 1
+
+
+def test_v1_draft_schema_is_migrated_without_losing_paused_issues(path):
+    """Pre-release stores are upgraded transactionally, not discarded."""
+    with TaskLedger(path) as ledger:
+        ledger.db.executescript("""
+            CREATE TABLE recurring_definitions (
+                id TEXT PRIMARY KEY, repository TEXT NOT NULL, issue TEXT,
+                title_prefix TEXT, every_seconds INTEGER NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('paused','cancelled')),
+                created_at TEXT NOT NULL,
+                CHECK ((issue IS NULL) != (title_prefix IS NULL)));
+            CREATE TABLE recurring_issue_state (
+                definition_id TEXT NOT NULL REFERENCES recurring_definitions(id),
+                issue TEXT NOT NULL, next_due TEXT NOT NULL, last_invocation_at TEXT,
+                last_receipt TEXT,
+                state TEXT NOT NULL CHECK(state IN
+                    ('pending','paused','completed','uncertain')),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(definition_id,issue));
+        """)
+        ledger.db.execute("""INSERT INTO recurring_definitions
+            VALUES (?,?,?,?,?,?,?)""",
+            ("a" * 64, "arthexis/ocpp-csms", REF, None, 3600,
+             "paused", "2026-11-16T12:00:00.000000Z"))
+        ledger.db.execute("""INSERT INTO recurring_issue_state
+            VALUES(?,?,?,?,?,?,?)""", ("a" * 64, REF,
+            "2026-11-16T13:00:00.000000Z", None, None,
+            "paused", "2026-11-16T12:00:00.000000Z"))
+    new = recurring_store.define(REF, "1h", path=path, now=NOW)
+    assert new["state"] == "paused"
+    snap = recurring_store.snapshot(path=path)
+    assert any(row["id"] == "a" * 64 and row["state"] == "paused"
+               for row in snap["definitions"])
+    assert any(row["definition_id"] == "a" * 64 and row["state"] == "paused"
+               for row in snap["issues"])
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert recurring_store.get(new["id"], path=path)["id"] == new["id"]
