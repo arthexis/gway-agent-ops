@@ -39,7 +39,6 @@ def _schema(db):
     )""")
     db.execute("""CREATE INDEX IF NOT EXISTS recurring_issue_due
                   ON recurring_issue_state(state,next_due)""")
-    db.execute("PRAGMA user_version")  # Do not take ownership of shared ledger version.
 
 
 def _instant(value):
@@ -61,8 +60,8 @@ def define(target, every, *, title_prefix=None, path=None, now=None):
     stamp = _instant(now or datetime.now(timezone.utc))
     with TaskLedger(path or default_ledger_path()) as ledger:
         db = ledger.db
-        _schema(db)
         db.execute("BEGIN IMMEDIATE")
+        _schema(db)
         try:
             db.execute("""INSERT OR IGNORE INTO recurring_definitions
                 (id,repository,issue,title_prefix,every_seconds,created_at)
@@ -124,6 +123,10 @@ def snapshot(*, path):
                                AND name='recurring_definitions'""").fetchone()
         if not exists:
             return {"definitions": [], "issues": []}
+        issue_table = db.execute("""SELECT 1 FROM sqlite_master WHERE type='table'
+                                   AND name='recurring_issue_state'""").fetchone()
+        if not issue_table:
+            raise ValueError("recurring_schema_incomplete")
         return {
             "definitions": [dict(row) for row in db.execute(
                 "SELECT * FROM recurring_definitions ORDER BY id")],
