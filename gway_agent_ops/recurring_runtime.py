@@ -322,6 +322,7 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
     if len(definitions) > MAX_DEFINITIONS:
         raise ValueError("recurring_definition_limit")
     results = []
+    skipped = []
     for definition in definitions[:MAX_DEFINITIONS]:
         did, policy = definition["id"], _policy(definition)
         try:
@@ -385,7 +386,10 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
             for issue in candidates:
                 if len(results) >= limit:
                     _record_evaluation(path, did, now=now)
-                    return {"processed": len(results), "results": results}
+                    output = {"processed": len(results), "results": results}
+                    if skipped:
+                        output["deferred"] = skipped
+                    return output
                 if issue.get("creator", "").casefold() != "arthexis" or not policy.matches(issue):
                     continue
                 ref = issue["ref"]
@@ -417,9 +421,17 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                     outcome = _dispatch(definition, issue, now=now, resolver=resolver,
                                         submitter=submitter, observer=observer, path=path,
                                         budget_reader=budget_reader)
-                    if outcome is not None and outcome["state"] not in (
-                            "approval_required", "budget_deferred"):
-                        results.append({"definition_id": did, **outcome})
+                    if outcome is not None:
+                        if outcome["state"] in ("approval_required", "budget_deferred"):
+                            skipped.append({"definition_id": did, "issue": ref,
+                                            "code": outcome["state"]})
+                            with TaskLedger(path) as ledger:
+                                ledger.db.execute("""UPDATE recurring_issue_state
+                                    SET last_error=?,updated_at=? WHERE definition_id=?
+                                    AND issue=? AND state='pending'""",
+                                    (outcome["state"], stamp, did, ref))
+                        else:
+                            results.append({"definition_id": did, **outcome})
             _record_evaluation(path, did, now=now)
         except (IssueRejected, OSError, ValueError, RuntimeError, KeyError, TypeError):
             # No unattended auto-retry after an uncertain claim. Outage during
@@ -428,4 +440,7 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                                error="recurring_evaluation_unavailable")
             results.append({"definition_id": did, "state": "deferred",
                             "code": "recurring_evaluation_unavailable"})
-    return {"processed": len(results), "results": results}
+    output = {"processed": len(results), "results": results}
+    if skipped:
+        output["deferred"] = skipped[:MAX_CANDIDATES]
+    return output
