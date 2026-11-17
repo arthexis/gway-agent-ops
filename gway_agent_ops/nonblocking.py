@@ -158,6 +158,12 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
             "--unit=gway-agent-" + digest[:32],
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
+            # The user-systemd manager does not inherit the invoking MCP
+            # provider's PATH; without this, a user-local codex executable
+            # resolves in the shell but fails with codex_unavailable in the
+            # detached worker. Pass PATH only, never the provider environment
+            # or authorization tokens. Issue payloads cannot select this PATH.
+            "--setenv=PATH=" + os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "--",
         ]
         # Invoke the same installed CLI used for read-only operations.
