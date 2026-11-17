@@ -24,6 +24,7 @@ from .task_ledger import TaskLedger
 
 MAX_DEFINITIONS = 8
 MAX_CANDIDATES = 50
+MAX_DISCOVERY_ITEMS = 300
 MAX_DISPATCH = 2
 MAX_PAGES = 3
 BUSY_DELAY = timedelta(minutes=2)
@@ -55,11 +56,11 @@ def _budget_allowed(budget):
                and budget[k]["remaining_percent"] > 0 for k in ("five_hour", "weekly"))
 
 
-def discover(repository, *, runner=subprocess.run, cap=MAX_CANDIDATES):
+def discover(repository, *, runner=subprocess.run, cap=MAX_DISCOVERY_ITEMS):
     """Bounded, deterministic GitHub discovery with no PRs or cross-repo search."""
     if not RecurringPolicy.parse(repository, "1h", title_prefix="test").repository == repository:
         raise ValueError("invalid_repository")
-    if type(cap) is not int or not 1 <= cap <= MAX_CANDIDATES:
+    if type(cap) is not int or not 1 <= cap <= MAX_DISCOVERY_ITEMS:
         raise ValueError("invalid_discovery_cap")
     result = []
     for page in range(1, MAX_PAGES + 1):
@@ -350,6 +351,8 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                 # Discover the entire bounded repository page set first; on
                 # GitHub errors do not infer closure from missing candidates.
                 candidates = [i for i in discoverer(policy.repository) if policy.matches(i)]
+                if len(candidates) > MAX_CANDIDATES:
+                    raise ValueError("discovery_candidate_limit")
                 selected = {candidate["ref"] for candidate in candidates}
                 for previous in snapshot["issues"]:
                     if previous["definition_id"] != did or previous["issue"] in selected:
