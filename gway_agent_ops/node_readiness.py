@@ -47,7 +47,7 @@ def assess(*, home: Path | None = None, workspace: Path | None = None,
         target = release.resolve(strict=True)
         release_valid = (target.name.isascii() and len(target.name) == 40
                          and all(ch in "0123456789abcdef" for ch in target.name)
-                         and (target / "bin/agent-mcp").is_file())
+                         and target.parent == home / ".local/share/gway-agent-ops/releases"\n                         and (target / "bin/agent-mcp").is_file()\n                         and os.access(target / "bin/agent-mcp", os.X_OK))
     except (OSError, RuntimeError):
         release_valid = False
     # Do not follow a potentially malicious provider-manifest symlink.
