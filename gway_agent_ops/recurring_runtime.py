@@ -193,6 +193,15 @@ def _claim(definition, issue, *, now, path):
                     or current["next_attempt_at"] and current["next_attempt_at"] > stamp):
                 db.execute("COMMIT")
                 return None
+            # Different recurring definitions targeting the same issue must
+            # never independently claim an active or uncertain invocation.
+            occupied = db.execute("""SELECT 1 FROM recurring_issue_state
+                WHERE issue=? AND definition_id<>? AND
+                  (state IN ('claimed','uncertain') OR last_invocation_at IS NOT NULL)
+                LIMIT 1""", (ref, did)).fetchone()
+            if occupied:
+                db.execute("COMMIT")
+                return None
             approval = _approved(db, ref)
             # Freeze once, BEFORE I/O; a crash leaves 'claimed' and is not
             # silently re-dispatched with a different UTC identity.
