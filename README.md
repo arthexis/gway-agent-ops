@@ -451,3 +451,72 @@ returns a versioned JSON envelope. This reads the local dispatch and report
 journals without contacting GitHub or starting work. The recorded process state
 and report delivery do not establish that the issue was resolved. This is
 separate from `agent tasks`, cloud executions and other nodes.
+
+
+## Recurring issue schedules (issue #93; operator opt-in)
+
+This extends the existing one-shot scheduler without changing its
+\`schedule\`/\`schedule-tick\` contract. A recurring definition is **paused by
+default** and can do no work until the installation operator explicitly
+activates it. Existing installations do not acquire active recurring work on
+upgrade. This feature is code-only until a separately accepted deployment.
+
+\`\`\`sh
+# Fixed issue, hourly while open (bounded by --max-runs and no-progress limit):
+agent schedule-recurring arthexis/ocpp-csms#346 --every 1h --until closed --max-runs 20 --json
+
+# Repository-scoped discovery of future matching issues:
+agent schedule-recurring arthexis/ocpp-csms --title-prefix '[auto-fix]' --every 6h --until closed --json
+# Conservative, anchored regex without groups/alternation:
+agent schedule-recurring arthexis/ocpp-csms --title-regex '^\[auto-fix\]\s+' --every 1h --until closed --json
+
+agent recurring-list --json
+agent recurring-show DEFINITION_ID --json
+agent recurring-resume DEFINITION_ID --json  # explicit opt-in only
+agent recurring-pause DEFINITION_ID --json
+agent recurring-cancel DEFINITION_ID --json
+\`\`\`
+
+MCP equivalents are \`recurring_create\`, \`recurring_list\`,
+\`recurring_get\`, \`recurring_pause\`, \`recurring_resume\` and
+\`recurring_cancel\`. The gateway must enforce \`gway:execute\` for creation,
+pause, resume and cancel, and may serve list/get with \`gway:read\`.
+The provider's \`readOnlyHint\` is classification metadata, not an OAuth
+authorization boundary. No bearer token or request scope is obtained from
+the issue body.
+
+**Authorization and lifecycle:** A recurring definition never creates
+per-issue operator approvals. Every matching issue still needs its own
+existing \`approved\` task-ledger state, current operator approval event,
+fresh trusted GitHub identity and an available, non-exhausted current Codex
+budget before an invocation is claimed. New matches from a selector are
+not implicitly authorized. A fixed definition completes when its issue is
+closed; a title-selector definition keeps discovering until explicitly
+cancelled. Closed selector matches are completed and do not auto-restart
+on reopening. A completed fixed issue can only be rearmed by an explicit
+operator \`recurring-resume\` after reopening.
+
+Each active tick enumerates bounded, fully fetched issue pages (maximum 3),
+at most 50 candidate issues per definition, 8 definitions, and 2 requests
+per tick. GitHub outages, ambiguous pagination, missing/expired budgets or
+revoked approval do not authorize dispatch. Every successful request has
+a unique frozen UTC identity, a durable claim and an event trail in the
+private existing SQLite ledger; no second dispatch is attempted while the
+prior identity is unresolved. A definitive \`busy\` response is deferred
+using that **same** frozen identity. A claim lost to a crash, an uncertain
+launch or mismatched identity remains blocked for operator reconciliation:
+it is never automatically retried with a new timestamp.
+
+Terminal result processing requires delivered findings before another
+successful Codex invocation may be scheduled. Per-issue max runs
+(default 100) and consecutive unchanged issue-title/body limit
+(default 3) pause the issue to avoid unbounded no-progress loops.
+A Codex exit code 0 does **not** prove host changes, successful deployment
+or issue resolution. No issue is auto-closed.
+
+**Deployment safety:** The activated \`gway-agent-ops-scheduler.timer\`
+continues using \`agent schedule-tick\`. It can evaluate recurring policies
+only after the approved code is deployed and definitions are explicitly
+resumed. Do not activate new recurring definitions on a production node
+without separate operator authorization. Restart/crash-safety tests and
+local CLI/MCP tests do not certify a live GitHub + Codex recurring run.
