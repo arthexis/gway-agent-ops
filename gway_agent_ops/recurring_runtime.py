@@ -123,7 +123,7 @@ def _set_definition(db, did, state, now, error=None):
         (state, error, _stamp(now), _stamp(now), did))
 
 
-def _refresh_terminal(definition, row, issue, *, now, observer):
+def _refresh_terminal(definition, row, issue, *, now, observer, path):
     """Only durable terminal receipts can advance a recurring due instant."""
     at = row.get("last_invocation_at")
     if not at:
@@ -149,7 +149,7 @@ def _refresh_terminal(definition, row, issue, *, now, observer):
     reason = ("max_runs" if count >= definition["max_runs"] else
               "no_progress" if no_progress >= definition["no_progress_limit"] else
               "execution_" + receipt["state"] if receipt["state"] != "finished" else None)
-    with TaskLedger(ledger_path()) as ledger:
+    with TaskLedger(path) as ledger:
         db = ledger.db
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -172,9 +172,9 @@ def _refresh_terminal(definition, row, issue, *, now, observer):
     return True
 
 
-def _claim(definition, issue, *, now):
+def _claim(definition, issue, *, now, path):
     did, ref, stamp = definition["id"], issue["ref"], _stamp(now)
-    with TaskLedger(ledger_path()) as ledger:
+    with TaskLedger(path) as ledger:
         db = ledger.db
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -203,10 +203,12 @@ def _claim(definition, issue, *, now):
             raise
 
 
-def _dispatch(definition, issue, *, now, resolver, submitter):
+def _dispatch(definition, issue, *, now, resolver, submitter, observer, path, budget_reader):
     did, ref, stamp = definition["id"], issue["ref"], _stamp(now)
+    if not _budget_allowed(budget_reader()):
+        return {"issue": ref, "state": "budget_deferred"}
     try:
-        claim = _claim(definition, issue, now=now)
+        claim = _claim(definition, issue, now=now, path=path)
     except ValueError:
         return {"issue": ref, "state": "approval_required"}
     if claim is None:
@@ -218,10 +220,8 @@ def _dispatch(definition, issue, *, now, resolver, submitter):
                 or not _policy(definition).matches({"ref": ref, "state": "open",
                                                      "title": fresh.get("title")})):
             code = "untrusted_issue"
-        elif not _budget_allowed(read_budgets()):
-            code = "budget_unavailable"
         else:
-            with TaskLedger(ledger_path()) as ledger:
+            with TaskLedger(path) as ledger:
                 db = ledger.db
                 db.execute("BEGIN IMMEDIATE")
                 try:
@@ -234,7 +234,7 @@ def _dispatch(definition, issue, *, now, resolver, submitter):
                     raise
             code = result.get("state", "launch_unconfirmed")
             if code == "already_requested":
-                prior = observe(ref, claim["claim_at"])
+                prior = observer(ref, claim["claim_at"])
                 code = "requested" if (prior.get("source") == "scheduled"
                         and prior.get("trigger") == "recurring-due") else "identity_conflict"
             if code == "requested":
@@ -246,7 +246,7 @@ def _dispatch(definition, issue, *, now, resolver, submitter):
     except (IssueRejected, ValueError, OSError, RuntimeError, KeyError, TypeError):
         # Cannot prove a post-claim failure did not send an external request.
         code = "preflight_or_launch_uncertain"
-    with TaskLedger(ledger_path()) as ledger:
+    with TaskLedger(path) as ledger:
         db = ledger.db
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -274,7 +274,7 @@ def _dispatch(definition, issue, *, now, resolver, submitter):
 
 
 def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
-         observer=observe, path=None, limit=MAX_DISPATCH):
+         observer=observe, budget_reader=read_budgets, path=None, limit=MAX_DISPATCH):
     """Bounded scheduler pass; user-systemd invokes this through schedule-tick."""
     if type(limit) is not int or not 1 <= limit <= MAX_DISPATCH:
         raise ValueError("invalid_recurring_limit")
@@ -327,12 +327,14 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                         WHERE definition_id=? AND issue=?""", (did, ref)).fetchone()
                     current = dict(state)
                 if current["state"] == "pending" and current["last_invocation_at"]:
-                    _refresh_terminal(definition, current, issue, now=now, observer=observer)
+                    _refresh_terminal(definition, current, issue, now=now, observer=observer, path=path)
                     continue
                 if current["state"] == "pending" and current["next_due"] <= stamp:
                     outcome = _dispatch(definition, issue, now=now, resolver=resolver,
-                                        submitter=submitter)
-                    if outcome is not None:
+                                        submitter=submitter, observer=observer, path=path,
+                                        budget_reader=budget_reader)
+                    if outcome is not None and outcome["state"] not in (
+                            "approval_required", "budget_deferred"):
                         results.append({"definition_id": did, **outcome})
         except (IssueRejected, OSError, ValueError, RuntimeError, KeyError, TypeError):
             # No unattended auto-retry after an uncertain claim. Outage during
