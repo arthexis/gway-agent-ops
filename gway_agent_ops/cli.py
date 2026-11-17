@@ -112,6 +112,26 @@ def build_parser():
     scheduled_cancel.add_argument("--json", action="store_true")
     scheduled_tick = sub.add_parser("schedule-tick", help="Explicit opt-in scheduler pass")
     scheduled_tick.add_argument("--json", action="store_true")
+    recurring = sub.add_parser("schedule-recurring",
+                               help="Define PAUSED recurring issue schedule; opt in with recurring-resume")
+    recurring.add_argument("ref")
+    recurring.add_argument("--every", required=True)
+    recurring.add_argument("--until", choices=("closed",), required=True)
+    selector = recurring.add_mutually_exclusive_group()
+    selector.add_argument("--title-prefix")
+    selector.add_argument("--title-regex")
+    recurring.add_argument("--max-runs", type=int, default=100)
+    recurring.add_argument("--no-progress-limit", type=int, default=3)
+    recurring.add_argument("--json", action="store_true")
+    recurring_list = sub.add_parser("recurring-list", help="List recurring definitions and per-issue state")
+    recurring_list.add_argument("--json", action="store_true")
+    recurring_show = sub.add_parser("recurring-show", help="Inspect a recurring definition")
+    recurring_show.add_argument("definition_id")
+    recurring_show.add_argument("--json", action="store_true")
+    for operation in ("pause", "resume", "cancel"):
+        action = sub.add_parser("recurring-" + operation, help=operation + " an existing definition")
+        action.add_argument("definition_id")
+        action.add_argument("--json", action="store_true")
     return parser
 
 
@@ -150,6 +170,10 @@ def main(argv=None):
                 data = scheduler.cancel(args.schedule_id)
             else:
                 data = scheduler.tick()
+                from .recurring_runtime import tick as recurring_tick
+                recurring = recurring_tick()
+                if recurring["processed"]:
+                    data["recurring"] = recurring
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             result, code = envelope(args.command, "error", error={
@@ -157,6 +181,29 @@ def main(argv=None):
                 "message": "Schedule operation failed or admission was denied"}), 1
         print(json_line(result) if args.json else
               (str(data) if code == 0 else "Schedule unavailable"))
+        return code
+    if args.command in ("schedule-recurring", "recurring-list", "recurring-show",
+                        "recurring-pause", "recurring-resume", "recurring-cancel"):
+        from . import recurring_store
+        try:
+            if args.command == "schedule-recurring":
+                data = recurring_store.define(args.ref, args.every,
+                    title_prefix=args.title_prefix, title_regex=args.title_regex,
+                    max_runs=args.max_runs, no_progress_limit=args.no_progress_limit)
+            elif args.command == "recurring-list":
+                data = recurring_store.snapshot(path=recurring_store.default_ledger_path())
+            elif args.command == "recurring-show":
+                data = recurring_store.get(args.definition_id)
+            else:
+                data = recurring_store.transition(args.definition_id,
+                    args.command.removeprefix("recurring-"))
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            result, code = envelope(args.command, "error", error={
+                "code": "recurring_unavailable",
+                "message": "Recurring operation unavailable or not permitted"}), 1
+        print(json_line(result) if args.json else
+              (str(data) if code == 0 else "Recurring operation unavailable"))
         return code
     if args.command == "discover-worker":
         from .discovery_worker import run_forever
