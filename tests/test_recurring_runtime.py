@@ -86,7 +86,7 @@ def test_fixed_due_once_and_terminal_hourly_advance(path):
     assert run(path, now=NOW + timedelta(seconds=15), submitter=submit)["processed"] == 0
     assert len(attempts) == 1
     result = run(path, now=NOW + timedelta(minutes=2), submitter=submit,
-        observer=lambda *a: {"state": "finished", "exit_code": 0})
+        observer=lambda *a: {"state": "finished", "exit_code": 0, "delivery_confirmed": True})
     assert result["processed"] == 0
     row = state(path, d["id"])
     assert row["state"] == "pending" and row["last_invocation_at"] is None
@@ -213,7 +213,7 @@ def test_no_progress_threshold_pauses_only_that_issue(path):
     d = fixed(path, no_progress_limit=1)
     run(path)
     run(path, now=NOW + timedelta(minutes=1),
-        observer=lambda *a: {"state": "finished", "exit_code": 0})
+        observer=lambda *a: {"state": "finished", "exit_code": 0, "delivery_confirmed": True})
     row = state(path, d["id"])
     assert row["state"] == "paused" and row["last_error"] == "no_progress"
     assert run(path, now=NOW + timedelta(days=1))["processed"] == 0
@@ -224,7 +224,7 @@ def test_max_runs_bound(path):
     d = fixed(path, max_runs=1)
     run(path)
     run(path, now=NOW + timedelta(minutes=2),
-        observer=lambda *a: {"state": "finished", "exit_code": 0})
+        observer=lambda *a: {"state": "finished", "exit_code": 0, "delivery_confirmed": True})
     assert state(path, d["id"])["state"] == "paused"
     assert state(path, d["id"])["last_error"] == "max_runs"
 
@@ -278,6 +278,84 @@ def test_discover_paginates_excludes_prs_and_fails_closed():
     with pytest.raises(ValueError, match="recurring_discovery_unavailable"):
         recurring_runtime.discover("arthexis/ocpp-csms",
             runner=lambda *a, **kw: Result([], rc=1))
+
+
+def test_selector_marks_closed_issues_complete_without_touching_other_matches(path):
+    approve(path)
+    d = recurring_store.define("arthexis/ocpp-csms", "1h",
+        title_prefix="[auto-fix]", path=path, now=NOW)
+    recurring_store.transition(d["id"], "resume", path=path)
+    candidates = [issue()]
+    run(path, discoverer=lambda repo: candidates)
+    def closed(ref):
+        if ref == REF:
+            raise IssueRejected("issue_not_open")
+        return issue(ref)
+    run(path, now=NOW + timedelta(minutes=1), resolver=closed,
+        discoverer=lambda repo: [])
+    assert state(path, d["id"])["state"] == "completed"
+    assert recurring_store.get(d["id"], path=path)["state"] == "active"
+    run(path, now=NOW + timedelta(hours=2), discoverer=lambda repo: candidates)
+    assert state(path, d["id"])["state"] == "completed"
+
+
+def test_selector_title_mismatch_pauses_and_rematch_requires_fresh_approval(path):
+    approve(path)
+    d = recurring_store.define("arthexis/ocpp-csms", "1h",
+        title_prefix="[auto-fix]", path=path, now=NOW)
+    recurring_store.transition(d["id"], "resume", path=path)
+    run(path, discoverer=lambda repo: [issue()])
+    run(path, now=NOW + timedelta(minutes=1),
+        resolver=lambda ref: issue(ref, title="other"),
+        discoverer=lambda repo: [])
+    assert state(path, d["id"])["state"] == "paused"
+    assert state(path, d["id"])["last_error"] == "selector_mismatch"
+    run(path, now=NOW + timedelta(minutes=2),
+        discoverer=lambda repo: [issue()])
+    # A prior invocation is still outstanding; re-match may not submit
+    # another task merely because the title changed back.
+    assert state(path, d["id"])["last_invocation_at"] is not None
+
+
+def test_fixed_reopened_requires_explicit_operator_resume(path):
+    approve(path)
+    d = fixed(path)
+    run(path, resolver=lambda _: (_ for _ in ()).throw(IssueRejected("issue_not_open")))
+    assert recurring_store.get(d["id"], path=path)["state"] == "completed"
+    assert run(path)["processed"] == 0
+    recurring_store.transition(d["id"], "resume", path=path,
+                               now=NOW + timedelta(days=1))
+    assert recurring_store.get(d["id"], path=path)["state"] == "active"
+    assert run(path, now=NOW + timedelta(days=1))["processed"] == 1
+
+
+def test_report_must_be_delivered_before_next_due(path):
+    approve(path)
+    d = fixed(path)
+    run(path)
+    run(path, now=NOW + timedelta(minutes=1),
+        observer=lambda *a: {"state": "finished", "delivery_confirmed": False})
+    assert state(path, d["id"])["last_invocation_at"] is not None
+    assert state(path, d["id"])["run_count"] == 1
+    run(path, now=NOW + timedelta(minutes=2),
+        observer=lambda *a: {"state": "finished", "delivery_confirmed": True})
+    assert state(path, d["id"])["last_invocation_at"] is None
+
+
+def test_two_policies_targeting_same_issue_do_not_overlap(path):
+    approve(path)
+    fixed_policy = fixed(path)
+    d2 = recurring_store.define("arthexis/ocpp-csms", "1h",
+        title_prefix="[auto-fix]", path=path, now=NOW)
+    recurring_store.transition(d2["id"], "resume", path=path)
+    requests = []
+    def submit(ref, at, **kw):
+        requests.append((ref, at))
+        return {"state": "requested"}
+    run(path, submitter=submit, discoverer=lambda _: [issue()])
+    assert len(requests) == 1
+    assert state(path, fixed_policy["id"])["run_count"] <= 1
+    assert state(path, d2["id"])["run_count"] <= 1
 
 
 def test_snapshot_has_no_writes_and_audit(path):
