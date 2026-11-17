@@ -48,6 +48,8 @@ def _fingerprint(issue):
 
 def _budget_allowed(budget):
     # Do not infer entitlement from a missing/stale rate-limit report.
+    if type(budget) is not dict:
+        return False
     return all(isinstance(budget.get(k), dict) and budget[k].get("available") is True
                and type(budget[k].get("remaining_percent")) in (int, float)
                and budget[k]["remaining_percent"] > 0 for k in ("five_hour", "weekly"))
@@ -317,6 +319,8 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
         # An absent pre-release recurring schema means zero active policies.
         return {"processed": 0, "results": []}
     definitions = [d for d in snapshot["definitions"] if d["state"] == "active"]
+    if len(definitions) > MAX_DEFINITIONS:
+        raise ValueError("recurring_definition_limit")
     results = []
     for definition in definitions[:MAX_DEFINITIONS]:
         did, policy = definition["id"], _policy(definition)
