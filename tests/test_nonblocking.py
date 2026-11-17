@@ -196,6 +196,29 @@ class NonblockingTests(unittest.TestCase):
         self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", runner.call_args.kwargs["env"])
         self.assertEqual(self.send()["state"], "already_requested")
 
+    def test_detached_worker_preserves_provider_path_without_tokens(self):
+        # The user-systemd manager defaults to /usr/bin:/bin and cannot find
+        # user-local Codex unless the provider supplies PATH explicitly.
+        runner = Mock(return_value=Mock(returncode=0))
+        with (patch("gway_agent_ops.nonblocking._launch_prerequisites",
+                    return_value="/usr/bin/agent"),
+              patch("gway_agent_ops.nonblocking._same_user_runtime_dir",
+                    return_value="/run/user/1000"),
+              patch.dict(os.environ, {
+                  "PATH": "/home/test/.local/bin:/usr/bin:/bin",
+                  "OPENAI_API_KEY": "DO_NOT_PROPAGATE",
+                  "GITHUB_TOKEN": "DO_NOT_PROPAGATE",
+              })):
+            response = submit(REF, AT, allowed_repositories=REPOS,
+                              state_dir=self.root, runner=runner)
+        self.assertEqual(response["state"], "requested")
+        argv = runner.call_args.args[0]
+        self.assertIn("--setenv=PATH=/home/test/.local/bin:/usr/bin:/bin", argv)
+        self.assertEqual(sum(arg.startswith("--setenv=PATH=") for arg in argv), 1)
+        self.assertNotIn("DO_NOT_PROPAGATE", "\\n".join(argv))
+        self.assertNotIn("OPENAI_API_KEY", "\\n".join(argv))
+        self.assertNotIn("GITHUB_TOKEN", "\\n".join(argv))
+
     def test_no_valid_same_user_bus_blocks_preflight_even_with_forged_env(self):
         with tempfile.TemporaryDirectory() as temp:
             workspace = Path(temp)
