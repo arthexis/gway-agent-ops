@@ -1,6 +1,7 @@
 """Hermetic recurring ledger tests; never starts AgentOps or systemd."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import sqlite3
 
 import pytest
 
@@ -69,3 +70,51 @@ def test_reject_naive_time_without_partial_state(path):
     with pytest.raises(ValueError, match="timezone_required"):
         recurring_store.define(REF, "1h", path=path, now=NOW.replace(tzinfo=None))
     assert recurring_store.snapshot(path=path)["definitions"] == []
+
+
+def test_upgrade_from_task_ledger_without_one_shot_schema(tmp_path):
+    legacy = tmp_path / "private" / "tasks.sqlite3"
+    with TaskLedger(legacy):
+        pass
+    row = recurring_store.define(REF, "1h", path=legacy, now=NOW)
+    assert row["state"] == "paused"
+    with sqlite3.connect(legacy) as db:
+        assert db.execute("SELECT count(*) FROM recurring_definitions").fetchone()[0] == 1
+        assert db.execute("SELECT name FROM sqlite_master WHERE name='schedules'").fetchone() is None
+
+
+def test_snapshot_read_does_not_mutate_existing_database(path):
+    recurring_store.define(REF, "1h", path=path, now=NOW)
+    with sqlite3.connect(path) as db:
+        before = db.total_changes
+        db.execute("PRAGMA query_only=ON")
+        expected = db.execute("SELECT id,created_at FROM recurring_definitions").fetchall()
+        assert db.total_changes == before
+    snap = recurring_store.snapshot(path=path)
+    assert [(row["id"], row["created_at"]) for row in snap["definitions"]] == expected
+    assert recurring_store.snapshot(path=path) == snap
+
+
+def test_schema_creation_rollback_on_failure(path, monkeypatch):
+    original = recurring_store._schema
+
+    def broken(db):
+        original(db)
+        raise RuntimeError("simulated migration crash")
+
+    monkeypatch.setattr(recurring_store, "_schema", broken)
+    with pytest.raises(RuntimeError, match="simulated migration crash"):
+        recurring_store.define(REF, "1h", path=path, now=NOW)
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT name FROM sqlite_master WHERE name='recurring_definitions'").fetchone() is None
+    monkeypatch.setattr(recurring_store, "_schema", original)
+    assert recurring_store.define(REF, "1h", path=path, now=NOW)["state"] == "paused"
+
+
+def test_competing_issue_writers_and_reopen(path):
+    policy = recurring_store.define(REF, "1h", path=path, now=NOW)
+    def create(_):
+        return recurring_store.record_issue(policy["id"], REF, NOW, path=path)["issue"]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert set(pool.map(create, range(12))) == {REF}
+    assert len(recurring_store.snapshot(path=path)["issues"]) == 1
