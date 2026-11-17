@@ -17,7 +17,7 @@ import stat
 import sys
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
-from .github_issues import resolve
+from .github_issues import resolve, require_node_route
 from .observation import observe
 from .runtime import _same_user_runtime_dir, systemd_user_environment
 
@@ -137,7 +137,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         if active is not None:
             return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
         # Apply the existing GitHub trust gate before creating any work.
-        resolve(ref)
+        require_node_route(resolve(ref))
         executable = _launch_prerequisites()
         request_record = {"issue": ref, "at": at, "state": "requested",
                           "source": source, "trigger": trigger}
