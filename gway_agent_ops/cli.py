@@ -172,7 +172,7 @@ def main(argv=None):
                 data = scheduler.tick()
                 from .recurring_runtime import tick as recurring_tick
                 recurring = recurring_tick()
-                if recurring["processed"]:
+                if recurring["processed"] or recurring.get("deferred"):
                     data["recurring"] = recurring
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
