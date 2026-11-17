@@ -134,6 +134,10 @@ def _refresh_terminal(definition, row, issue, *, now, observer, path):
         return False
     if type(receipt) is not dict or receipt.get("state") not in TERMINAL:
         return False
+    if receipt["state"] == "finished" and receipt.get("delivery_confirmed") is not True:
+        # A Codex process exit alone does not prove that its durable findings
+        # were delivered; do not schedule the next invocation prematurely.
+        return False
     did, ref = definition["id"], row["issue"]
     stamp = _stamp(now)
     progress = _fingerprint(issue)
@@ -312,7 +316,42 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                     results.append({"definition_id": did, "state": "completed"})
                     continue
             else:
+                # Discover the entire bounded repository page set first; on
+                # GitHub errors do not infer closure from missing candidates.
                 candidates = [i for i in discoverer(policy.repository) if policy.matches(i)]
+                selected = {candidate["ref"] for candidate in candidates}
+                for previous in snapshot["issues"]:
+                    if previous["definition_id"] != did or previous["issue"] in selected:
+                        continue
+                    if previous["state"] in ("completed", "claimed", "uncertain"):
+                        continue
+                    ref = previous["issue"]
+                    try:
+                        live = resolver(ref)
+                        closed = live.get("state") != "open"
+                    except IssueRejected as exc:
+                        if not _closed_or_missing(exc):
+                            raise
+                        closed = True
+                    with TaskLedger(path) as ledger:
+                        db = ledger.db
+                        db.execute("BEGIN IMMEDIATE")
+                        try:
+                            row = db.execute("""SELECT state FROM recurring_issue_state
+                                WHERE definition_id=? AND issue=?""", (did, ref)).fetchone()
+                            if row and row["state"] in ("pending", "paused"):
+                                if closed:
+                                    _update_issue(db, did, ref, "completed", now,
+                                                  last_error="issue_closed")
+                                    recurring_store._audit(db, did, ref, "closed", stamp)
+                                elif row["state"] == "pending":
+                                    _update_issue(db, did, ref, "paused", now,
+                                                  last_error="selector_mismatch")
+                                    recurring_store._audit(db, did, ref, "mismatch", stamp)
+                            db.execute("COMMIT")
+                        except BaseException:
+                            db.execute("ROLLBACK")
+                            raise
             for issue in candidates:
                 if len(results) >= limit:
                     return {"processed": len(results), "results": results}
@@ -321,6 +360,20 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                 ref = issue["ref"]
                 recurring_store.record_issue(did, ref, now, title=issue.get("title"),
                                              path=path, now=now)
+                with TaskLedger(path) as ledger:
+                    db = ledger.db
+                    db.execute("BEGIN IMMEDIATE")
+                    try:
+                        pending = db.execute("""SELECT state,last_error FROM recurring_issue_state
+                            WHERE definition_id=? AND issue=?""", (did, ref)).fetchone()
+                        if (pending and pending["state"] == "paused"
+                                and pending["last_error"] == "selector_mismatch"):
+                            _update_issue(db, did, ref, "pending", now,
+                                          next_due=stamp, last_error=None)
+                        db.execute("COMMIT")
+                    except BaseException:
+                        db.execute("ROLLBACK")
+                        raise
                 with TaskLedger(path) as ledger:
                     db = ledger.db
                     state = db.execute("""SELECT * FROM recurring_issue_state
