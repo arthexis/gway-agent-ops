@@ -224,8 +224,13 @@ def transition(definition_id, action, *, path=None, now=None):
             db.execute("""UPDATE recurring_definitions SET state=?,updated_at=?
                           WHERE id=?""", (new_state, stamp, definition_id))
             if action == "resume":
-                db.execute("""UPDATE recurring_issue_state SET state='pending',updated_at=?
-                    WHERE definition_id=? AND state='paused'""", (stamp, definition_id))
+                # Explicit operator reactivation may rearm a completed fixed
+                # issue after GitHub reopen. Preserve any uncertain claims.
+                db.execute("""UPDATE recurring_issue_state SET state='pending',
+                    next_due=?,last_invocation_at=NULL,claim_at=NULL,
+                    no_progress_count=0,run_count=0,last_error=NULL,updated_at=?
+                    WHERE definition_id=? AND state IN ('paused','completed')
+                    """, (stamp, stamp, definition_id))
             else:
                 db.execute("""UPDATE recurring_issue_state SET state='paused',updated_at=?
                     WHERE definition_id=? AND state='pending'""", (stamp, definition_id))
