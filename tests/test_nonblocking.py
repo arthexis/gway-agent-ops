@@ -141,6 +141,42 @@ class NonblockingTests(unittest.TestCase):
                     _launch_prerequisites()
             os.chmod(workspace, 0o700)
 
+    def test_provider_virtualenv_pins_worker_ignoring_stale_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            release = root / "releases" / "pinned"
+            (release / "bin").mkdir(parents=True)
+            executable = release / "bin" / "agent"
+            executable.write_text("#!/bin/sh\\nexit 0\\n")
+            executable.chmod(0o700)
+            current = root / "current"
+            current.symlink_to(release, target_is_directory=True)
+            workspace = root / "workspaces"
+            workspace.mkdir(mode=0o700)
+            env = {"GWAY_AGENT_WORKSPACE_ROOT": str(workspace)}
+            with patch("gway_agent_ops.nonblocking.sys.prefix", str(current)), \
+                 patch("gway_agent_ops.nonblocking.sys.base_prefix", "/usr"), \
+                 patch.dict(os.environ, env), \
+                 patch("gway_agent_ops.nonblocking.shutil.which",
+                       side_effect=lambda name: "/old/release/bin/agent" if name == "agent"
+                                      else "/usr/bin/systemd-run") as lookup, \
+                 patch("gway_agent_ops.nonblocking._same_user_runtime_dir",
+                       return_value="/run/user/1000"):
+                self.assertEqual(_launch_prerequisites(), str(executable))
+                lookup.assert_called_once_with("systemd-run")
+
+    def test_missing_provider_virtualenv_worker_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "bin").mkdir()
+            with patch("gway_agent_ops.nonblocking.sys.prefix", str(root)), \
+                 patch("gway_agent_ops.nonblocking.sys.base_prefix", "/usr"), \
+                 patch("gway_agent_ops.nonblocking.shutil.which",
+                       return_value="/old/release/bin/agent") as lookup:
+                with self.assertRaisesRegex(ValueError, "agent_cli_not_found"):
+                    _launch_prerequisites()
+                lookup.assert_not_called()
+
     def test_nonlogin_submit_uses_verified_same_user_bus(self):
         # Simulate the node's non-login MCP executor: its own systemd bus is
         # available, but ambient XDG_RUNTIME_DIR may be absent or untrusted.

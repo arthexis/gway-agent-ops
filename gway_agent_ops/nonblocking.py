@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import stat
+import sys
 
 from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
 from .github_issues import resolve
@@ -29,7 +30,19 @@ def _launch_prerequisites() -> str:
     This cannot prove the transient unit will start: failures after dispatch
     remain launch_unconfirmed to preserve at-most-once submission.
     """
-    executable = shutil.which("agent")
+    # MCP providers may inherit a stale PATH from the gateway process, even
+    # after a newer immutable release and provider manifest are published.
+    # The virtualenv executing this provider is the authority for its worker.
+    # Resolve the root *before* launching so a current/ symlink switch cannot
+    # redirect an already admitted request to a different release.
+    if sys.prefix != sys.base_prefix:
+        try:
+            executable = str(Path(sys.prefix).resolve(strict=True) / "bin" / "agent")
+        except (OSError, RuntimeError):
+            raise ValueError("agent_cli_not_found") from None
+    else:
+        # Source/development entry points run without the immutable venv.
+        executable = shutil.which("agent")
     if not executable or not Path(executable).is_file() or not os.access(executable, os.X_OK):
         raise ValueError("agent_cli_not_found")
     workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
