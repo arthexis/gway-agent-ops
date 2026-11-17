@@ -7,8 +7,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import quote
 
 from .recurring_policy import RecurringPolicy
 from .scheduler import ledger_path as default_ledger_path
@@ -233,10 +238,29 @@ def transition(definition_id, action, *, path=None, now=None):
             raise
 
 
+@contextmanager
+def _readonly(path):
+    """Read the private recurring tables without requiring a one-shot schedule."""
+    path = Path(path)
+    parent, info = path.parent.lstat(), path.lstat()
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid()
+            or parent.st_mode & 0o077 or not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid() or info.st_mode & 0o077
+            or info.st_nlink != 1):
+        raise PermissionError("unsafe recurring ledger")
+    uri = "file:" + quote(str(path.absolute()), safe="/") + "?mode=ro"
+    db = sqlite3.connect(uri, uri=True, timeout=10)
+    try:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        yield db
+    finally:
+        db.close()
+
+
 def snapshot(*, path):
     """Pure existing-ledger read, never migration/WAL mutation."""
-    from .scheduler import _read_db
-    with _read_db(path) as db:
+    with _readonly(path) as db:
         if not db.execute("""SELECT 1 FROM sqlite_master WHERE type='table'
                              AND name='recurring_definitions'""").fetchone():
             return {"definitions": [], "issues": [], "audit": []}
