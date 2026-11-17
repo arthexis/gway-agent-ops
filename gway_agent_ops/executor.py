@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 from .dispatch import Busy, Duplicate, admission, timestamp
-from .github_issues import IssueRejected, resolve, require_node_route
+from .github_issues import IssueRejected, resolve
 from .runtime import runtime_context
 from .reporting import enqueue, recover
 from .findings import parse_findings
@@ -57,7 +57,6 @@ def build_issue_prompt(issue: dict) -> str:
 def preview(ref: str, *, allowed_repositories: tuple[str, ...] | None = None, resolver=resolve) -> dict:
     """Read-only trusted issue prompt; never admits or starts execution."""
     issue = resolver(ref)
-    require_node_route(issue)
     return {"issue": f'{issue["repository"]}#{issue["number"]}', "url": issue["url"],
             "prompt": build_issue_prompt(issue), "title": issue["title"]}
 
@@ -70,7 +69,6 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
     if not 1 <= timeout_seconds <= 7200:
         raise ValueError("timeout must be 1..7200 seconds")
     issue = resolver(ref, repo=repo)
-    require_node_route(issue)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)
     checkout = root.joinpath(*issue["repository"].split("/"))

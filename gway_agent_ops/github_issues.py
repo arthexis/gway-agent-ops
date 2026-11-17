@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import socket
 import subprocess
 
 from .cli import parse_issue_ref
@@ -16,19 +15,6 @@ class IssueRejected(ValueError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
-
-
-def require_node_route(issue: dict) -> None:
-    """Keep 004 execution explicitly targeted and reject cross-node labels."""
-    labels = issue.get("labels", [])
-    if not isinstance(labels, list) or any(not isinstance(x, str) for x in labels):
-        raise IssueRejected("invalid_issue_labels")
-    node = socket.gethostname().split(".", 1)[0]
-    targets = {x for x in labels if re.fullmatch(r"gway-[0-9]{3}", x)}
-    if len(targets) > 1 or (targets and targets != {node}):
-        raise IssueRejected("target_label_ambiguous" if len(targets) > 1 else "target_label_missing")
-    if node == "gway-004" and targets != {node}:
-        raise IssueRejected("target_label_missing")
 
 
 def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[str, ...] | None = None,
