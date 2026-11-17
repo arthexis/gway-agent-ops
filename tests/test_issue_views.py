@@ -119,6 +119,12 @@ class IssueProjectionTests(unittest.TestCase):
         with self.assertRaises(IssueRejected):
             search_issues(label="gway-001", runner=search_runner([page([issue()])], fail=True))
 
+    def test_explicit_gway_004_label_filter_is_available(self):
+        rows = search_issues(label="gway-004", runner=search_runner([
+            page([issue(number=96, label="gway-004")])]))
+        self.assertEqual(rows[0]["labels"], ["gway-004"])
+        self.assertEqual(rows[0]["number"], 96)
+
     def test_only_bounded_known_labels_and_creator(self):
         with self.assertRaisesRegex(IssueRejected, "invalid_issue_search"):
             search_issues(label="unknown", runner=search_runner([page([])]))
