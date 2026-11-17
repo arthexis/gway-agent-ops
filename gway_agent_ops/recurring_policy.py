@@ -16,6 +16,7 @@ INTERVAL = re.compile(r"^([1-9][0-9]{0,5})(m|h|d)$")
 MIN_INTERVAL = timedelta(minutes=15)
 MAX_INTERVAL = timedelta(days=30)
 MAX_PREFIX = 128
+MAX_REGEX = 128
 
 
 @dataclass(frozen=True)
@@ -24,9 +25,11 @@ class RecurringPolicy:
     every: timedelta
     issue: str | None = None
     title_prefix: str | None = None
+    title_regex: str | None = None
 
     @classmethod
-    def parse(cls, target: str, every: str, *, title_prefix: str | None = None):
+    def parse(cls, target: str, every: str, *, title_prefix: str | None = None,
+              title_regex: str | None = None):
         if type(target) is not str or len(target) > 200:
             raise ValueError("invalid_recurring_target")
         if type(every) is not str:
@@ -40,16 +43,33 @@ class RecurringPolicy:
             raise ValueError("recurring_interval_out_of_range")
         is_issue = ISSUE.fullmatch(target) is not None
         if is_issue:
-            if title_prefix is not None:
+            if title_prefix is not None or title_regex is not None:
                 raise ValueError("selector_conflict")
             return cls(target.split("#", 1)[0], duration, issue=target)
         if REPOSITORY.fullmatch(target) is None:
             raise ValueError("invalid_recurring_target")
-        if (type(title_prefix) is not str or not title_prefix
-                or len(title_prefix) > MAX_PREFIX or title_prefix != title_prefix.strip()
-                or any(ord(c) < 32 or ord(c) == 127 for c in title_prefix)):
-            raise ValueError("title_prefix_required")
-        return cls(target, duration, title_prefix=title_prefix)
+        if (title_prefix is None) == (title_regex is None):
+            raise ValueError("selector_required")
+        if title_prefix is not None:
+            if (type(title_prefix) is not str or not title_prefix
+                    or len(title_prefix) > MAX_PREFIX or title_prefix != title_prefix.strip()
+                    or any(ord(c) < 32 or ord(c) == 127 for c in title_prefix)):
+                raise ValueError("title_prefix_required")
+            return cls(target, duration, title_prefix=title_prefix)
+        # Limit the regex dialect to bounded, anchored patterns without groups,
+        # alternation or backreferences. Match only bounded issue titles.
+        if (type(title_regex) is not str or not title_regex.startswith("^")
+                or len(title_regex) > MAX_REGEX or len(title_regex) <= 1
+                or any(ord(c) < 32 or ord(c) == 127 for c in title_regex)
+                or any(c in title_regex for c in "(){}|")
+                or title_regex.count("*") + title_regex.count("+") > 2
+                or "\\1" in title_regex or "\\2" in title_regex):
+            raise ValueError("unsafe_title_regex")
+        try:
+            re.compile(title_regex)
+        except re.error as exc:
+            raise ValueError("unsafe_title_regex") from exc
+        return cls(target, duration, title_regex=title_regex)
 
     def matches(self, issue: dict) -> bool:
         """Filter discovery candidates; NOT a trust or execution authorization."""
@@ -63,7 +83,11 @@ class RecurringPolicy:
         if self.issue is not None:
             return ref == self.issue
         title = issue.get("title")
-        return type(title) is str and title.startswith(self.title_prefix)
+        if type(title) is not str or len(title) > 256:
+            return False
+        if self.title_prefix is not None:
+            return title.startswith(self.title_prefix)
+        return re.match(self.title_regex, title) is not None
 
     def next_due(self, previous_due: datetime, *, now: datetime) -> datetime:
         """Skip missed slots; never replay a backlog of unattended intervals."""
