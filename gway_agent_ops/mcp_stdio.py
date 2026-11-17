@@ -46,6 +46,26 @@ TOOLS = (
     {"name": "schedule_cancel", "description": "Cancel an unclaimed schedule; requires gway:execute.",
      "inputSchema": {"type": "object", "properties": {"schedule_id": {"type": "string"}},
                      "required": ["schedule_id"], "additionalProperties": False}},
+    {"name": "recurring_create", "description": "Define a PAUSED recurring policy; requires gway:execute.", 
+     "inputSchema": {"type": "object", "properties": {
+         "ref": {"type": "string"}, "every": {"type": "string"},
+         "title_prefix": {"type": "string"}, "title_regex": {"type": "string"},
+         "max_runs": {"type": "integer"}, "no_progress_limit": {"type": "integer"}},
+         "required": ["ref", "every"], "additionalProperties": False}},
+    {"name": "recurring_list", "description": "Read recurring definitions and per-issue state.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "recurring_get", "description": "Read recurring definition.",
+     "inputSchema": {"type": "object", "properties": {"definition_id": {"type": "string"}},
+                     "required": ["definition_id"], "additionalProperties": False}},
+    {"name": "recurring_pause", "description": "Pause a recurring policy; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"definition_id": {"type": "string"}},
+                     "required": ["definition_id"], "additionalProperties": False}},
+    {"name": "recurring_resume", "description": "Activate a recurring policy; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"definition_id": {"type": "string"}},
+                     "required": ["definition_id"], "additionalProperties": False}},
+    {"name": "recurring_cancel", "description": "Permanently cancel a recurring policy; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"definition_id": {"type": "string"}},
+                     "required": ["definition_id"], "additionalProperties": False}},
     {"name": "report", "description": "Recover validated delivered findings for a frozen issue invocation; GitHub read-only.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
@@ -55,7 +75,9 @@ TOOLS = (
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}},
 )
-TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in ("submit", "schedule", "schedule_cancel")}} for tool in TOOLS)
+TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in (
+    "submit", "schedule", "schedule_cancel", "recurring_create",
+    "recurring_pause", "recurring_resume", "recurring_cancel")}} for tool in TOOLS)
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
@@ -92,6 +114,19 @@ def call_tool(name, args):
         if name == "scheduled_get":
             return scheduler.inspect(args["schedule_id"])
         return scheduler.cancel(args["schedule_id"])
+    if name.startswith("recurring_"):
+        from . import recurring_store
+        if name == "recurring_create":
+            return recurring_store.define(args["ref"], args["every"],
+                title_prefix=args.get("title_prefix"), title_regex=args.get("title_regex"),
+                max_runs=args.get("max_runs", 100),
+                no_progress_limit=args.get("no_progress_limit", 3))
+        if name == "recurring_list":
+            return recurring_store.snapshot(path=recurring_store.default_ledger_path())
+        if name == "recurring_get":
+            return recurring_store.get(args["definition_id"])
+        return recurring_store.transition(args["definition_id"],
+            name.removeprefix("recurring_"))
     if name == "report":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
@@ -115,6 +150,11 @@ _SAFE_CODES = frozenset({
     "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
     "invalid_run_at", "timezone_required", "run_at_out_of_range",
     "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
+    "invalid_recurring_target", "invalid_recurring_interval",
+    "recurring_interval_out_of_range", "unsafe_title_regex",
+    "selector_required", "selector_conflict", "title_prefix_required",
+    "invalid_definition_id", "definition_not_found", "invalid_max_runs",
+    "invalid_no_progress_limit", "recurring_cancelled", "recurring_identity_conflict",
 })
 
 
