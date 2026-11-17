@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .recurring_policy import RecurringPolicy
 from .scheduler import ledger_path as default_ledger_path
@@ -81,7 +81,7 @@ def define(target, every, *, title_prefix=None, path=None, now=None):
             raise
 
 
-def record_issue(definition_id, issue, due, *, path=None, now=None):
+def record_issue(definition_id, issue, due, *, title=None, path=None, now=None):
     """Store a discovered issue as paused; cannot create an executable claim."""
     stamp = _instant(now or datetime.now(timezone.utc))
     due_stamp = _instant(due)
@@ -98,10 +98,10 @@ def record_issue(definition_id, issue, due, *, path=None, now=None):
                 raise ValueError("definition_not_found")
             policy = RecurringPolicy(
                 definition["repository"],
-                __import__("datetime").timedelta(seconds=definition["every_seconds"]),
+                timedelta(seconds=definition["every_seconds"]),
                 definition["issue"], definition["title_prefix"])
             if not policy.matches({"ref": issue, "state": "open",
-                                   "title": definition["title_prefix"] or ""}):
+                                   "title": title}):
                 raise ValueError("issue_not_selected")
             db.execute("""INSERT OR IGNORE INTO recurring_issue_state
                 (definition_id,issue,next_due,state,updated_at)
