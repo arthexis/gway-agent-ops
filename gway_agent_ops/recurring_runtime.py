@@ -286,6 +286,23 @@ def _dispatch(definition, issue, *, now, resolver, submitter, observer, path, bu
     return {"issue": ref, "state": state, "code": code}
 
 
+def _record_evaluation(path, definition_id, *, now, error=None):
+    stamp = _stamp(now)
+    with TaskLedger(path) as ledger:
+        db = ledger.db
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("""UPDATE recurring_definitions
+                SET last_evaluated_at=?,last_error=?,updated_at=?
+                WHERE id=?""", (stamp, error, stamp, definition_id))
+            if error is not None:
+                recurring_store._audit(db, definition_id, None, "deferred", stamp, error)
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+
+
 def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
          observer=observe, budget_reader=read_budgets, path=None, limit=MAX_DISPATCH):
     """Bounded scheduler pass; user-systemd invokes this through schedule-tick."""
@@ -363,6 +380,7 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                             raise
             for issue in candidates:
                 if len(results) >= limit:
+                    _record_evaluation(path, did, now=now)
                     return {"processed": len(results), "results": results}
                 if issue.get("creator", "").casefold() != "arthexis" or not policy.matches(issue):
                     continue
@@ -398,9 +416,12 @@ def tick(*, now=None, resolver=resolve, discoverer=discover, submitter=submit,
                     if outcome is not None and outcome["state"] not in (
                             "approval_required", "budget_deferred"):
                         results.append({"definition_id": did, **outcome})
+            _record_evaluation(path, did, now=now)
         except (IssueRejected, OSError, ValueError, RuntimeError, KeyError, TypeError):
             # No unattended auto-retry after an uncertain claim. Outage during
             # discovery preserves the definition and every pending request.
+            _record_evaluation(path, did, now=now,
+                               error="recurring_evaluation_unavailable")
             results.append({"definition_id": did, "state": "deferred",
                             "code": "recurring_evaluation_unavailable"})
     return {"processed": len(results), "results": results}
