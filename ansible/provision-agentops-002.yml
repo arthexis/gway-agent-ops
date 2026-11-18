@@ -114,6 +114,13 @@
       loop_control:
         label: "{{ item.item }}"
 
+    - name: Refuse overwriting any pre-existing enabled AgentOps registration
+      ansible.builtin.assert:
+        that:
+          - not (agentops_002_existing.results[0].stat.exists | default(false))
+        fail_msg: Initial gway-002 provider provisioning must not replace an installed registration
+      when: agentops_002_apply | bool
+
     - name: Report bounded preparation decision
       ansible.builtin.debug:
         msg:
@@ -139,14 +146,7 @@
               - agentops_002_policy_dir.stat.isdir | default(false)
               - not (agentops_002_policy_dir.stat.islnk | default(false))
               - agentops_002_policy_dir.stat.pw_name == 'root'
-              - agentops_002_policy_dir.stat.mode not in ['0777', '0775']
-        - name: Publish provider-owned pinned manifest
-          ansible.builtin.copy:
-            dest: "{{ agentops_002_manifest }}"
-            owner: root
-            group: root
-            mode: '0644'
-            content: "{{ {'source_id': 'agentops', 'revision': agentops_002_revision, 'executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp', 'argv': [agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp']} | to_json }}\n"
+              - agentops_002_policy_dir.stat.mode in ['0755', '0750', '0700', '0555', '0550', '0500']
         - name: Publish secret-free pinned Codex runtime policy
           ansible.builtin.copy:
             dest: "{{ agentops_002_runtime_policy }}"
@@ -154,3 +154,10 @@
             group: root
             mode: '0644'
             content: "{{ {'workspace': agentops_002_workspace, 'agent_executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent', 'codex_executable': agentops_002_codex_executable} | to_json }}\n"
+        - name: Publish provider-owned pinned manifest
+          ansible.builtin.copy:
+            dest: "{{ agentops_002_manifest }}"
+            owner: root
+            group: root
+            mode: '0644'
+            content: "{{ {'source_id': 'agentops', 'revision': agentops_002_revision, 'executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp', 'argv': [agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp']} | to_json }}\n"
