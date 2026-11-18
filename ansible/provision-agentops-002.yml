@@ -74,6 +74,25 @@
           - agentops_002_prerequisites.results[3].stat.mode == '0600'
         fail_msg: Missing or unsafe local gway-002 AgentOps/Codex prerequisites
 
+    - name: Read the installed node executor identity without switching accounts
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "from gway_remote.node_exec_identity import selected_user; print(selected_user())"
+      environment:
+        PYTHONPATH: /opt/gway-remote
+      become: true
+      register: agentops_002_executor_identity
+      changed_when: false
+
+    - name: Reject provider publication under a different node executor identity
+      ansible.builtin.assert:
+        that:
+          - agentops_002_executor_identity.stdout == agentops_002_owner
+        fail_msg: AgentOps private arthe workspace is not available to another node executor; identity migration requires separate approval
+      when: agentops_002_apply | bool
+
     - name: Inspect existing provider policy files without following symlinks
       become: true
       ansible.builtin.stat:
