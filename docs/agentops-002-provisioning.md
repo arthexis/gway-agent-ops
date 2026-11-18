@@ -33,8 +33,12 @@ ansible-playbook -i localhost, -c local ansible/provision-agentops-002.yml \
 ```
 
 The default performs preflight only. It fails closed if the local hostname,
-identity, private workspace, local adopted Codex credentials, release executables
-or existing policy files are missing or unsafe. The playbook does not display
+private workspace, local adopted Codex credentials, release executables
+or existing policy files are missing or unsafe. It also reads the existing
+root-controlled GWay Remote executor identity without changing that policy.
+The apply path **refuses** publication unless the existing node executor is
+`arthe`; an existing `gway-exec` identity requires an independently reviewed
+handoff/cutover, not implicit migration. The playbook does not display
 authentication contents.
 
 After separately authorizing the production-node policy publication, repeat
@@ -42,7 +46,14 @@ with `-e '{"agentops_002_apply": true, "agentops_002_approval": "I_ACCEPT_GWAY_0
 The JSON extra-vars form is required to preserve the boolean type.
 The only writes are two root-owned files under
 `/etc/gway-mcp-providers/`: `agentops.json` and `agentops.runtime.json`.
-Publication is **not** federation activation or live execution acceptance.
+**Security boundary:** publishing `agentops.json` immediately registers an
+enabled provider for local GWay Remote discovery. The next authenticated
+provider discovery or gateway catalog refresh can expose its tools without
+a separate enable step. Thus applying this playbook **is an activation of
+provider registration** and needs explicit authorization; it is not proof
+that SSH federation, Codex or an actual job is operationally accepted.
+The additional `agentops.runtime.json` is secret-free metadata excluded from
+MCP manifest discovery; it does not grant independent permissions.
 
 ## Independent field acceptance (not performed by this change)
 
