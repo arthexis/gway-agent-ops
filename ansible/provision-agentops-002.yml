@@ -1,0 +1,137 @@
+---
+# Manual, gway-002-local only. Does not install AgentOps, Codex, credentials,
+# grant Remote deployment rights, or restart/enable any service.
+# Default invocation is preflight-only; apply needs an explicit operator token.
+- name: Prepare gway-002 AgentOps MCP provider without deployment authority
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    agentops_002_owner: arthe
+    agentops_002_release_root: /home/arthe/.local/share/gway-agent-ops/releases
+    agentops_002_workspace: /home/arthe/.local/share/gway-agent-ops/workspaces
+    agentops_002_manifest: /etc/gway-mcp-providers/agentops.json
+    agentops_002_runtime_policy: /etc/gway-mcp-providers/agentops.runtime.json
+    agentops_002_apply: false
+  tasks:
+    - name: Require exact local node, owner, pinned release and executable
+      ansible.builtin.assert:
+        that:
+          - lookup('pipe', 'hostname -s') == 'gway-002'
+          - lookup('pipe', 'id -un') == agentops_002_owner
+          - agentops_002_revision is defined
+          - agentops_002_revision is match('^[0-9a-f]{40}$')
+          - agentops_002_codex_executable is defined
+          - agentops_002_codex_executable is match('^/[^ ]+/codex$')
+          - "'..' not in agentops_002_codex_executable.split('/')"
+          - agentops_002_apply | type_debug == 'bool'
+          - not (agentops_002_apply | bool) or agentops_002_approval | default('') == 'I_ACCEPT_GWAY_002_AGENTOPS_PROVIDER'
+        fail_msg: Refusing non-local, unpinned or non-approved gway-002 preparation
+
+    - name: Inspect pinned CLI and MCP executables without following symlinks
+      ansible.builtin.stat:
+        path: "{{ agentops_002_release_root }}/{{ agentops_002_revision }}/bin/{{ item }}"
+        follow: false
+      loop: [agent, agent-mcp]
+      register: agentops_002_binaries
+
+    - name: Require regular executable release files
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.executable | default(false)
+          - item.stat.pw_name == agentops_002_owner
+      loop: "{{ agentops_002_binaries.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Inspect private workspace, Codex executable and local adopted identity
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ agentops_002_workspace }}"
+        - "{{ agentops_002_codex_executable }}"
+        - /home/arthe/.local/share/gway-agent-ops/codex-home/config.toml
+        - /home/arthe/.local/share/gway-agent-ops/codex-home/auth.json
+      register: agentops_002_prerequisites
+      no_log: true
+
+    - name: Require private workspace and owner-local Codex configuration
+      ansible.builtin.assert:
+        that:
+          - agentops_002_prerequisites.results[0].stat.isdir | default(false)
+          - not (agentops_002_prerequisites.results[0].stat.islnk | default(false))
+          - agentops_002_prerequisites.results[0].stat.pw_name == agentops_002_owner
+          - agentops_002_prerequisites.results[0].stat.mode == '0700'
+          - agentops_002_prerequisites.results[1].stat.executable | default(false)
+          - agentops_002_prerequisites.results[1].stat.isreg | default(false)
+          - agentops_002_prerequisites.results[2].stat.isreg | default(false)
+          - agentops_002_prerequisites.results[2].stat.pw_name == agentops_002_owner
+          - agentops_002_prerequisites.results[3].stat.isreg | default(false)
+          - agentops_002_prerequisites.results[3].stat.pw_name == agentops_002_owner
+          - agentops_002_prerequisites.results[3].stat.mode == '0600'
+        fail_msg: Missing or unsafe local gway-002 AgentOps/Codex prerequisites
+
+    - name: Inspect existing provider policy files without following symlinks
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ agentops_002_manifest }}"
+        - "{{ agentops_002_runtime_policy }}"
+      register: agentops_002_existing
+
+    - name: Refuse to replace untrusted provider policy
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.exists | default(false)) or (item.stat.isreg | default(false))
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or item.stat.pw_name == 'root'
+          - not (item.stat.exists | default(false)) or item.stat.mode in ['0644', '0640', '0600', '0444', '0440', '0400']
+      loop: "{{ agentops_002_existing.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Report bounded preparation decision
+      ansible.builtin.debug:
+        msg:
+          node: gway-002
+          mode: "{{ 'explicit_apply' if agentops_002_apply else 'preflight_only' }}"
+          release: "{{ agentops_002_revision }}"
+          repository_deploy_grants: unchanged
+          credentials: unchanged
+          services: unchanged
+
+    - name: Publish only the pinned node-owned AgentOps policies
+      when: agentops_002_apply | bool
+      become: true
+      block:
+        - name: Require existing provider policy directory
+          ansible.builtin.stat:
+            path: /etc/gway-mcp-providers
+            follow: false
+          register: agentops_002_policy_dir
+        - name: Reject missing or untrusted policy directory
+          ansible.builtin.assert:
+            that:
+              - agentops_002_policy_dir.stat.isdir | default(false)
+              - not (agentops_002_policy_dir.stat.islnk | default(false))
+              - agentops_002_policy_dir.stat.pw_name == 'root'
+              - agentops_002_policy_dir.stat.mode not in ['0777', '0775']
+        - name: Publish provider-owned pinned manifest
+          ansible.builtin.copy:
+            dest: "{{ agentops_002_manifest }}"
+            owner: root
+            group: root
+            mode: '0644'
+            content: "{{ {'source_id': 'agentops', 'revision': agentops_002_revision, 'executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp', 'argv': [agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp']} | to_json }}\n"
+        - name: Publish secret-free pinned Codex runtime policy
+          ansible.builtin.copy:
+            dest: "{{ agentops_002_runtime_policy }}"
+            owner: root
+            group: root
+            mode: '0644'
+            content: "{{ {'workspace': agentops_002_workspace, 'agent_executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent', 'codex_executable': agentops_002_codex_executable} | to_json }}\n"
