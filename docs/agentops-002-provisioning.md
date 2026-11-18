@@ -38,8 +38,8 @@ or existing policy files are missing or unsafe. The playbook does not display
 authentication contents.
 
 After separately authorizing the production-node policy publication, repeat
-with `-e agentops_002_apply=true` and
-`-e agentops_002_approval=I_ACCEPT_GWAY_002_AGENTOPS_PROVIDER`.
+with `-e '{"agentops_002_apply": true, "agentops_002_approval": "I_ACCEPT_GWAY_002_AGENTOPS_PROVIDER"}'`.
+The JSON extra-vars form is required to preserve the boolean type.
 The only writes are two root-owned files under
 `/etc/gway-mcp-providers/`: `agentops.json` and `agentops.runtime.json`.
 Publication is **not** federation activation or live execution acceptance.
