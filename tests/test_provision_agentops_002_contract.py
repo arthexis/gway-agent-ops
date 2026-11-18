@@ -50,3 +50,18 @@ def test_002_ansible_syntax_when_ansible_available():
         cwd=ROOT, capture_output=True, text=True, timeout=30, check=False,
     )
     assert result.returncode == 0, result.stderr
+
+def test_002_provider_rejects_identity_mismatch_before_manifest_write():
+    source = PLAYBOOK.read_text(encoding="utf-8")
+    identity_read = source.index("Read the installed node executor identity")
+    deny = source.index("Reject provider publication under a different node executor identity")
+    publish = source.index("Publish only the pinned node-owned AgentOps policies")
+    assert identity_read < deny < publish
+    assert "from gway_remote.node_exec_identity import selected_user" in source
+    assert "agentops_002_executor_identity.stdout == agentops_002_owner" in source
+    assert "when: agentops_002_apply | bool" in source
+    assert "changed_when: false" in source
+    documentation = (ROOT / "docs/agentops-002-provisioning.md").read_text(encoding="utf-8")
+    assert "activation of" in documentation
+    assert "next authenticated" in documentation
+
