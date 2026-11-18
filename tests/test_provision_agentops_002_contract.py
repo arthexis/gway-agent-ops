@@ -65,3 +65,13 @@ def test_002_provider_rejects_identity_mismatch_before_manifest_write():
     assert "activation of" in documentation
     assert "next authenticated" in documentation
 
+
+def test_002_manifest_is_last_and_exact_replay_is_idempotent():
+    source = PLAYBOOK.read_text(encoding="utf-8")
+    assert "agentops_002_policy_dir.stat.mode in ['0755', '0750', '0700', '0555', '0550', '0500']" in source
+    assert source.index("Publish secret-free pinned Codex runtime policy") < source.index(
+        "Publish provider-owned pinned manifest")
+    assert "Read existing registration when present" in source
+    assert "(agentops_002_old_manifest.content | b64decode | from_json) == agentops_002_desired_manifest" in source
+    assert "Refuse changing an already enabled provider registration" in source
+    assert "agentops_002_desired_manifest | to_json" in source
