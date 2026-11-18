@@ -114,13 +114,6 @@
       loop_control:
         label: "{{ item.item }}"
 
-    - name: Refuse overwriting any pre-existing enabled AgentOps registration
-      ansible.builtin.assert:
-        that:
-          - not (agentops_002_existing.results[0].stat.exists | default(false))
-        fail_msg: Initial gway-002 provider provisioning must not replace an installed registration
-      when: agentops_002_apply | bool
-
     - name: Report bounded preparation decision
       ansible.builtin.debug:
         msg:
@@ -147,6 +140,30 @@
               - not (agentops_002_policy_dir.stat.islnk | default(false))
               - agentops_002_policy_dir.stat.pw_name == 'root'
               - agentops_002_policy_dir.stat.mode in ['0755', '0750', '0700', '0555', '0550', '0500']
+        - name: Bind the immutable provider manifest for exact idempotence
+          ansible.builtin.set_fact:
+            agentops_002_desired_manifest:
+              source_id: agentops
+              revision: "{{ agentops_002_revision }}"
+              executable: "{{ agentops_002_release_root }}/{{ agentops_002_revision }}/bin/agent-mcp"
+              argv:
+                - "{{ agentops_002_release_root }}/{{ agentops_002_revision }}/bin/agent-mcp"
+
+        - name: Read existing registration when present
+          ansible.builtin.slurp:
+            src: "{{ agentops_002_manifest }}"
+          when: agentops_002_existing.results[0].stat.exists | default(false)
+          register: agentops_002_old_manifest
+          no_log: true
+
+        - name: Refuse changing an already enabled provider registration
+          ansible.builtin.assert:
+            that:
+              - (agentops_002_old_manifest.content | b64decode | from_json) == agentops_002_desired_manifest
+            fail_msg: An already installed provider has a different immutable revision; separate rollout approval required
+          when: agentops_002_existing.results[0].stat.exists | default(false)
+          no_log: true
+
         - name: Publish secret-free pinned Codex runtime policy
           ansible.builtin.copy:
             dest: "{{ agentops_002_runtime_policy }}"
@@ -160,4 +177,4 @@
             owner: root
             group: root
             mode: '0644'
-            content: "{{ {'source_id': 'agentops', 'revision': agentops_002_revision, 'executable': agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp', 'argv': [agentops_002_release_root ~ '/' ~ agentops_002_revision ~ '/bin/agent-mcp']} | to_json }}\n"
+            content: "{{ agentops_002_desired_manifest | to_json }}\n"
