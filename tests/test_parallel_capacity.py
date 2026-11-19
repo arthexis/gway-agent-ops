@@ -87,7 +87,7 @@ class CapacityTests(unittest.TestCase):
             self.assertEqual(self.submit("owner/c#1")["state"], "busy")
 
     def test_corrupt_request_fails_closed(self):
-        (self.root / "requests").mkdir()
+        (self.root / "requests").mkdir(mode=0o700)
         (self.root / "requests" / "broken.json").write_text('{"issue": 5}')
         with self.assertRaisesRegex(ValueError, "invalid request journal"):
             self.submit("owner/one#1")
