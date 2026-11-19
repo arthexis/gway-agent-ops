@@ -96,6 +96,41 @@ class StaleRecoveryTests(unittest.TestCase):
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
         self.assertEqual(calls, [])
 
+    def test_accepted_stopped_worker_only_after_runtime_grace(self):
+        self.seed()
+        accepted_at = "2026-10-13T15:00:00.000000Z"
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": REF, "at": accepted_at}) + "\n")
+        run, calls = self.runner(ABSENT)
+        self.assertEqual(reconcile_pending(
+            state_dir=self.root,
+            now=datetime(2026, 10, 13, 16, 1, tzinfo=timezone.utc),
+            runner=run)["recovered"], [])
+        self.assertEqual(calls, [])
+        result = reconcile_pending(
+            state_dir=self.root,
+            now=datetime(2026, 10, 13, 16, 6, tzinfo=timezone.utc),
+            runner=run)
+        self.assertEqual(result["recovered"], [REF])
+        observed = observe(REF, AT, state_dir=self.root)
+        self.assertEqual(observed["state"], "released")
+        self.assertEqual(observed["admin_work_state"], "not_attested")
+        records = list((self.root / "outbox").glob("*.json"))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(json.loads(records[0].read_text())["status"], "interrupted")
+
+    def test_legacy_direct_acceptance_not_auto_recovered(self):
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": REF, "at": "2026-10-13T15:00:00.000000Z"}) + "\n")
+        runner = Mock()
+        result = reconcile_pending(
+            state_dir=self.root,
+            now=datetime(2026, 10, 13, 18, tzinfo=timezone.utc),
+            runner=runner)
+        self.assertEqual(result["recovered"], [])
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
+        runner.assert_not_called()
+
     def test_unavailable_systemd_never_turns_uncertainty_into_terminal(self):
         self.seed()
         with patch("gway_agent_ops.stale_recovery.systemd_user_environment",
