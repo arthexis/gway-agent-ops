@@ -1,94 +1,50 @@
-"""Read-only snapshot of the single issue admission slot."""
+"""Read-only view of bounded AgentOps reservations and live work."""
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 from pathlib import Path
 
 from .dispatch import DEFAULT_STATE
-from .observation import observe
-
-TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
+from .capacity import capacity, locked, repo_lock, unresolved
 
 
 def status(*, state_dir: Path | None = None) -> dict:
     root = Path(state_dir or DEFAULT_STATE)
-    idle = {"state": "idle", "available": True, "active_issue": None, "active_at": None}
     requests = root / "requests"
-    if requests.is_symlink():
-        raise ValueError("unsafe requests directory")
-    if requests.exists() and not requests.is_dir():
-        raise ValueError("invalid requests directory")
-    # A submission in its atomic reservation window must not look idle.
     gate = requests / "submission.lock"
-    if gate.is_symlink():
-        raise ValueError("unsafe submission lock")
-    gate_busy = False
-    if gate.exists():
-        gate_fd = os.open(gate, os.O_RDONLY | os.O_NOFOLLOW)
-        try:
-            try:
-                fcntl.flock(gate_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                gate_busy = True
-            else:
-                fcntl.flock(gate_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(gate_fd)
-    outstanding = []
-    if requests.exists():
-        for path in sorted(requests.glob("*.json")):
-            if path.is_symlink():
-                raise ValueError("unsafe request path")
-            record = json.loads(path.read_text(encoding="utf-8"))
-            ref, at = record.get("issue"), record.get("at")
-            if not isinstance(ref, str) or not isinstance(at, str):
-                raise ValueError("invalid request journal")
-            observed = observe(ref, at, state_dir=root)["state"]
-            if observed not in TERMINAL:
-                outstanding.append((ref, at, observed))
-    # Direct invocations have no request marker. Their accepted journal must
-    # remain authoritative until a durable terminal report is observed.
-    ledger = root / "accepted.jsonl"
-    if ledger.is_symlink():
-        raise ValueError("unsafe dispatch journal")
-    if ledger.exists():
-        for line in ledger.read_text(encoding="utf-8").splitlines():
-            record = json.loads(line)
-            ref, at = record.get("issue"), record.get("at")
-            if not isinstance(ref, str) or not isinstance(at, str):
-                raise ValueError("invalid acceptance journal")
-            observed = observe(ref, at, state_dir=root)["state"]
-            if observed not in TERMINAL and (ref, at, observed) not in outstanding:
-                if not any(row[0] == ref and row[1] == at for row in outstanding):
-                    outstanding.append((ref, at, observed))
-    if len(outstanding) > 1:
-        return {"state": "uncertain", "available": False,
-                "active_issue": None, "active_at": None}
-    lock = root / "execution.lock"
-    if lock.is_symlink():
-        raise ValueError("unsafe execution lock")
-    running = False
-    if lock.exists():
-        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
-        try:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                running = True
-            else:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
-    if outstanding:
-        ref, at, observed = outstanding[0]
-        state = "uncertain" if gate_busy else ("running" if running else ("reserved" if observed == "requested" else "uncertain"))
-        return {"state": state, "available": False, "active_issue": ref, "active_at": at}
-    if running:
-        return {"state": "running", "available": False,
-                "active_issue": None, "active_at": None}
-    if gate_busy:
-        return {"state": "uncertain", "available": False,
-                "active_issue": None, "active_at": None}
-    return idle
+    gate_busy = locked(gate)
+    active = unresolved(root)
+    legacy_busy = locked(root / "execution.lock")
+    # A lock held without a corresponding durable identity is ambiguous:
+    # never declare that worker capacity safe to reuse.
+    repo_busy = [row for row in active if locked(repo_lock(root, row[0]))]
+    orphan_locks = False
+    for path in root.glob("execution-repo-*.lock"):
+        if locked(path) and not any(repo_lock(root, row[0]) == path for row in active):
+            orphan_locks = True
+    limit = capacity()
+    count = len(active)
+    if not active and not legacy_busy and not gate_busy and not orphan_locks:
+        return {"state": "idle", "available": True,
+                "active_issue": None, "active_at": None,
+                "active_count": 0, "capacity": limit, "reservations": []}
+    if legacy_busy or gate_busy or orphan_locks or count > limit:
+        state = "uncertain"
+    elif repo_busy:
+        state = "running"
+    elif all(row[2] == "requested" for row in active):
+        state = "reserved"
+    else:
+        state = "uncertain"
+    reservations = [
+        {"issue": ref, "at": at, "state": observed}
+        for ref, at, observed in active
+    ]
+    return {"state": state,
+            "available": (not legacy_busy and not gate_busy
+                          and not orphan_locks and count < limit),
+            "active_issue": active[0][0] if count == 1 else None,
+            "active_at": active[0][1] if count == 1 else None,
+            "active_count": count, "capacity": limit,
+            "reservations": reservations}
