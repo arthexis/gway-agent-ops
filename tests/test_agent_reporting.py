@@ -102,9 +102,13 @@ class ReportingTests(unittest.TestCase):
         self.assertFalse((self.root / "outbox").exists())
         self.assertFalse((self.root / "delivered").exists())
         self.assertEqual(observe(self.issue, self.at, state_dir=self.root)["state"], "accepted")
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
+        # A different repository can use another slot, while the
+        # same checkout remains protected by its unresolved acceptance.
+        with admission("arthexis/other#20", self.at, state_dir=self.root):
+            pass
         with self.assertRaises(Busy):
-            with admission("arthexis/other#20", self.at, state_dir=self.root):
+            with admission("arthexis/example#20", self.at, state_dir=self.root):
                 pass
 
     def test_recover_rejects_corrupt_journal_and_symlink_without_writes(self):

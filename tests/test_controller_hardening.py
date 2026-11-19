@@ -29,7 +29,7 @@ class ControllerHardeningTests(unittest.TestCase):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
         with admission(ref, at, state_dir=self.root):
             pass
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
         with self.assertRaises(Busy):
             with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                            state_dir=self.root):
@@ -47,8 +47,9 @@ class ControllerHardeningTests(unittest.TestCase):
              patch("gway_agent_ops.nonblocking.subprocess.run", return_value=Mock(returncode=1)):
             submit(ref, at, allowed_repositories=("owner/repo",),
                    state_dir=self.root)
-        lock = self.root / "execution.lock"
-        fd = os.open(lock, os.O_RDWR)
+        from gway_agent_ops.capacity import repo_lock
+        lock = repo_lock(self.root, ref)
+        fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
         runner = Mock()
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -71,7 +72,7 @@ class ControllerHardeningTests(unittest.TestCase):
         self.assertEqual(first["state"], "launch_unconfirmed")
         self.assertEqual(again["state"], "already_requested")
         self.assertEqual(runner.call_count, 1)
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
 
     def test_status_during_submission_gate_is_unavailable(self):
         requests = self.root / "requests"
@@ -116,7 +117,7 @@ class ControllerHardeningTests(unittest.TestCase):
         child = subprocess.run([sys.executable, "-c", program],
                                capture_output=True, text=True, timeout=10)
         self.assertEqual(child.returncode, 0, child.stderr)
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
         with self.assertRaises(Busy):
             with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                            state_dir=self.root):
@@ -153,7 +154,7 @@ class ControllerHardeningTests(unittest.TestCase):
         self.assertTrue(status(state_dir=self.root)["available"])
         with admission("owner/repo#2", "2026-10-13T15:01:00Z",
                        state_dir=self.root):
-            self.assertFalse(status(state_dir=self.root)["available"])
+            self.assertEqual(status(state_dir=self.root)["active_count"], 1)
 
     def test_collected_transient_unit_may_be_released(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
@@ -187,7 +188,7 @@ class ControllerHardeningTests(unittest.TestCase):
                     Mock(returncode=code, stdout=properties)])
                 with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
                     release(ref, at, state_dir=self.root, runner=runner)
-                self.assertFalse(status(state_dir=self.root)["available"])
+                self.assertEqual(status(state_dir=self.root)["active_count"], 1)
 
     def test_failed_release_keeps_reservation_after_restart(self):
         ref, at = "owner/repo#1", "2026-10-13T15:00:00Z"
@@ -199,7 +200,7 @@ class ControllerHardeningTests(unittest.TestCase):
         runner = Mock(return_value=Mock(returncode=1, stdout=""))
         with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
             release(ref, at, state_dir=self.root, runner=runner)
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
         self.assertEqual(status(state_dir=self.root)["active_issue"], ref)
 
 

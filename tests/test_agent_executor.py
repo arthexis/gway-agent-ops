@@ -114,7 +114,7 @@ class ExecutionTests(unittest.TestCase):
                 self.call()
         self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
                                  state_dir=self.state)["state"], "accepted")
-        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertEqual(status(state_dir=self.state)["active_count"], 1)
         self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
         with self.assertRaises(Duplicate):
             self.call()
@@ -126,7 +126,7 @@ class ExecutionTests(unittest.TestCase):
             self.call(runner_override=timeout_runner)
         key, at = "arthexis/example#19", "2026-10-13T01:00:00Z"
         self.assertEqual(observe(key, at, state_dir=self.state)["state"], "accepted")
-        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertEqual(status(state_dir=self.state)["active_count"], 1)
         self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
         self.assertEqual(list((self.state / "delivered").glob("*.json")), [])
         with self.assertRaises(Busy):
@@ -142,7 +142,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
                                  state_dir=self.state)["state"], "accepted")
         self.assertEqual(list((self.state / "outbox").glob("*.json")), [])
-        self.assertFalse(status(state_dir=self.state)["available"])
+        self.assertEqual(status(state_dir=self.state)["active_count"], 1)
 
     def test_no_checkout_prevents_dispatch(self):
         (self.checkout / ".git").rmdir()
@@ -153,6 +153,8 @@ class ExecutionTests(unittest.TestCase):
     def test_timeout_validation(self):
         with self.assertRaises(ValueError):
             self.call(timeout_seconds=0)
+        with self.assertRaises(ValueError):
+            self.call(timeout_seconds=3601)
         self.assertFalse(self.state.exists())
 
     def test_unlabeled_issue_executes_under_existing_admission(self):

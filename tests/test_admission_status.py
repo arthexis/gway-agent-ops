@@ -15,7 +15,8 @@ class AdmissionStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             self.assertEqual(status(state_dir=root), {
-                "state": "idle", "available": True, "active_issue": None, "active_at": None})
+                "state": "idle", "available": True, "active_issue": None, "active_at": None,
+                "active_count": 0, "capacity": 3, "reservations": []})
             self.assertEqual(list(root.iterdir()), [])
 
     def test_failed_launch_is_uncertain(self):
@@ -28,7 +29,8 @@ class AdmissionStatusTests(unittest.TestCase):
                        allowed_repositories=("owner/repo",), state_dir=root)
                 observed = status(state_dir=root)
                 self.assertEqual(observed["state"], "uncertain")
-                self.assertFalse(observed["available"])
+                self.assertTrue(observed["available"])
+                self.assertEqual(observed["active_count"], 1)
                 self.assertEqual(observed["active_issue"], "owner/repo#1")
                 self.assertEqual(observed["active_at"], "2026-10-13T15:00:00.000000Z")
 
@@ -38,7 +40,7 @@ class AdmissionStatusTests(unittest.TestCase):
             fd = os.open(root / "execution.lock", os.O_CREAT | os.O_RDWR, 0o600)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self.assertEqual(status(state_dir=root)["state"], "running")
+                self.assertEqual(status(state_dir=root)["state"], "uncertain")
                 self.assertFalse(status(state_dir=root)["available"])
             finally:
                 os.close(fd)
@@ -50,7 +52,8 @@ class AdmissionStatusTests(unittest.TestCase):
             (root / "accepted.jsonl").write_text(
                 json.dumps({"issue": ref, "at": at}) + "\n")
             snapshot = status(state_dir=root)
-            self.assertFalse(snapshot["available"])
+            self.assertTrue(snapshot["available"])
+            self.assertEqual(snapshot["active_count"], 1)
             self.assertEqual(snapshot["active_issue"], ref)
             with patch("gway_agent_ops.nonblocking.resolve", return_value={"labels": ["gway-001"]}):
                 response = submit("owner/repo#2", "2026-10-13T15:01:00Z",

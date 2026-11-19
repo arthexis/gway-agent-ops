@@ -103,39 +103,38 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
     lock = requests / "submission.lock"
     if lock.is_symlink() or marker.is_symlink():
         raise ValueError("unsafe_dispatch_path")
+    # A replay must not contact systemd. Read/validate its marker only after
+    # acquiring the submission gate to avoid observing an unflushed JSON file.
+    if not marker.exists():
+        from .stale_recovery import reconcile_pending
+        reconcile_pending(state_dir=root, runner=runner)
     descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         if marker.exists():
+            existing = json.loads(marker.read_text(encoding="utf-8"))
+            if (type(existing) is not dict
+                    or existing.get("issue") != ref or existing.get("at") != at):
+                raise ValueError("invalid request journal")
             return {"issue": ref, "at": at, "state": "already_requested"}
-        execution_lock = root / "execution.lock"
-        if execution_lock.is_symlink():
-            raise ValueError("unsafe execution lock")
-        execution_fd = os.open(execution_lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        try:
-            try:
-                fcntl.flock(execution_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return {"issue": ref, "at": at, "state": "busy"}
-        finally:
-            os.close(execution_fd)
-        # The submission gate is held here; do not call the status snapshot,
-        # which would interpret our own reservation as busy.
-        ledger = root / "accepted.jsonl"
-        if ledger.is_symlink():
-            raise ValueError("unsafe dispatch journal")
-        if ledger.exists():
-            for line in ledger.read_text(encoding="utf-8").splitlines():
-                accepted = json.loads(line)
-                identity = (accepted.get("issue"), accepted.get("at"))
-                if not all(isinstance(value, str) for value in identity):
-                    raise ValueError("invalid acceptance journal")
-                if observe(*identity, state_dir=root)["state"] not in _TERMINAL:
-                    return {"issue": ref, "at": at, "state": "busy",
-                            "active_issue": identity[0]}
-        active = _outstanding_request(requests, root, digest)
-        if active is not None:
-            return {"issue": ref, "at": at, "state": "busy", "active_issue": active}
+        # The global execution lock is respected only for an older installed
+        # single-slot worker. New workers hold repository-specific locks and
+        # capacity is represented by durable outstanding identities.
+        from .capacity import capacity, locked, unresolved
+        if locked(root / "execution.lock"):
+            return {"issue": ref, "at": at, "state": "busy",
+                    "reason": "legacy_executor_active"}
+        active = unresolved(root)
+        if len(active) >= capacity():
+            return {"issue": ref, "at": at, "state": "busy",
+                    "reason": "capacity_full", "active_count": len(active)}
+        # Shared Git worktrees are not safe for concurrent Codex mutations.
+        # Different repositories can use separate execution slots.
+        same_repo = next((row for row in active
+                          if row[0].split("#", 1)[0].casefold() == ref.split("#", 1)[0].casefold()), None)
+        if same_repo is not None:
+            return {"issue": ref, "at": at, "state": "busy",
+                    "reason": "repository_active", "active_issue": same_repo[0]}
         # Apply the existing GitHub trust gate before creating any work.
         resolve(ref)
         executable = _launch_prerequisites()
@@ -156,6 +155,9 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
+            "--property=RuntimeMaxSec=3600",
+            "--property=KillMode=control-group",
+            "--property=Restart=no",
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
             # The user-systemd manager does not inherit the invoking MCP
@@ -226,9 +228,11 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             raise ValueError("invalid request journal")
         if observe(ref, at, state_dir=root)["state"] in _TERMINAL:
             return {"issue": ref, "at": at, "state": "already_terminal"}
-        execution_lock = root / "execution.lock"
-        if execution_lock.is_symlink():
-            raise ValueError("unsafe execution lock")
+        from .capacity import locked, repo_lock
+        if locked(root / "execution.lock") or locked(repo_lock(root, ref)):
+            raise ValueError("execution_active")
+        # Hold the repository lock while reconciling the same identity.
+        execution_lock = repo_lock(root, ref)
         execution_fd = os.open(execution_lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             try:

@@ -1,4 +1,4 @@
-"""Single-slot, timestamp-addressed dispatch admission (no execution).
+"""Bounded, repository-isolated timestamp-addressed dispatch admission.
 
 The caller must validate GitHub trust *before* entering admission, and retain
 the context until execution ends. This module never invokes Codex.
@@ -40,7 +40,7 @@ def _private_directory(path: Path) -> None:
 
 
 class Busy(Exception):
-    """Another command currently holds the single execution slot."""
+    """Another invocation occupies the requested repository or capacity."""
 
 
 class Duplicate(Exception):
@@ -66,7 +66,8 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
     gate_path = requests / "submission.lock"
     if gate_path.is_symlink():
         raise ValueError("unsafe submission lock")
-    lock_path = directory / "execution.lock"
+    from .capacity import capacity, locked, repo_lock, unresolved
+    lock_path = repo_lock(directory, issue)
     if lock_path.is_symlink():
         raise ValueError("unsafe lock path")
     gate_fd = os.open(gate_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -80,16 +81,19 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
             raise PermissionError("unsafe lock file")
+        if locked(directory / "execution.lock"):
+            raise Busy("legacy single-slot invocation is still active")
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise Busy("an agent invocation is already in progress") from exc
-        from .nonblocking import _outstanding_request
-        import hashlib
-        digest = hashlib.sha256((issue + "\n" + at).encode()).hexdigest()
-        active = _outstanding_request(requests, directory, digest)
-        if active is not None:
-            raise Busy("an unresolved issue request already owns the slot")
+            raise Busy("another invocation is using this repository") from exc
+        active = [row for row in unresolved(directory)
+                  if (row[0], row[1]) != (issue, at)]
+        if len(active) >= capacity():
+            raise Busy("node execution capacity is full")
+        if any(row[0].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()
+               for row in active):
+            raise Busy("another invocation is using this repository")
         log = directory / "accepted.jsonl"
         if log.is_symlink():
             raise ValueError("unsafe dispatch journal")
@@ -105,8 +109,10 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                     row = json.loads(line)
                     if row["issue"] == issue and row["at"] == at:
                         raise Duplicate("this issue and timestamp were already accepted")
-                    if observe(row["issue"], row["at"], state_dir=directory)["state"] not in terminal:
-                        raise Busy("a previously accepted invocation is unresolved")
+                    if (observe(row["issue"], row["at"], state_dir=directory)["state"]
+                            not in terminal
+                            and row["issue"].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()):
+                        raise Busy("a previously accepted invocation is unresolved in this repository")
                 record = {"issue": issue, "at": at}
                 # A direct CLI worker may have a dedicated, identity-bound
                 # systemd service. Capture provenance before accepting work.
