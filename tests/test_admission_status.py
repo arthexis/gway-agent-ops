@@ -15,7 +15,8 @@ class AdmissionStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             self.assertEqual(status(state_dir=root), {
-                "state": "idle", "available": True, "active_issue": None, "active_at": None})
+                "state": "idle", "available": True, "active_issue": None, "active_at": None,
+                "active_count": 0, "capacity": 3, "reservations": []})
             self.assertEqual(list(root.iterdir()), [])
 
     def test_failed_launch_is_uncertain(self):
