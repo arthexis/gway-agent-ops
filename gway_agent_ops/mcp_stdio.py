@@ -17,7 +17,7 @@ from .executor import ExecutionError, preview as issue_preview
 from .issue_views import list_issues
 from .github_issues import IssueRejected
 from .observation import observe
-from .nonblocking import submit as issue_submit
+from .nonblocking import submit as issue_submit, release as issue_release
 from .result_recovery import report as recover_report
 
 MAX_MESSAGE = 65536
@@ -31,6 +31,11 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"}},
                      "required": ["ref"], "additionalProperties": False}},
     {"name": "submit", "description": "Request one trusted issue with frozen UTC identity; requires gway:execute.",
+     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
+                     "at": {"type": "string"}}, "required": ["ref", "at"],
+                     "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
+    {"name": "reservation_cancel",
+     "description": "Cancel an unaccepted issue reservation after verifying its systemd worker is stopped; requires gway:execute. Never cancels running or accepted work.",
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"},
                      "at": {"type": "string"}}, "required": ["ref", "at"],
                      "additionalProperties": False}, "annotations": {"readOnlyHint": False}},
@@ -76,7 +81,7 @@ TOOLS = (
                      "additionalProperties": False}},
 )
 TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in (
-    "submit", "schedule", "schedule_cancel", "recurring_create",
+    "submit", "reservation_cancel", "schedule", "schedule_cancel", "recurring_create",
     "recurring_pause", "recurring_resume", "recurring_cancel")}} for tool in TOOLS)
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
@@ -103,6 +108,10 @@ def call_tool(name, args):
             raise ValueError("invalid_timestamp")
         return issue_submit(args["ref"], args["at"],
                             source="remote-api", trigger="mcp-submit")
+    if name == "reservation_cancel":
+        if type(args["at"]) is not str:
+            raise ValueError("invalid_timestamp")
+        return issue_release(args["ref"], args["at"], pending_only=True)
     if name in ("schedule", "scheduled_list", "scheduled_get", "schedule_cancel"):
         from . import scheduler
         if name == "schedule":
@@ -148,6 +157,8 @@ _SAFE_CODES = frozenset({
     "agent_cli_not_found", "agent_workspace_not_configured",
     "agent_workspace_unavailable", "agent_workspace_unsafe",
     "agent_systemd_run_unavailable", "agent_user_bus_unavailable",
+    "reservation_already_accepted", "request_not_found", "execution_active",
+    "unit_stop_unconfirmed", "unit_inactive_unconfirmed",
     "invalid_run_at", "timezone_required", "run_at_out_of_range",
     "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
     "invalid_recurring_target", "invalid_recurring_interval",
