@@ -146,6 +146,9 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         command = [
             "systemd-run", "--user", "--quiet", "--collect",
             "--unit=gway-agent-" + digest[:32],
+            "--property=RuntimeMaxSec=3600",
+            "--property=KillMode=control-group",
+            "--property=Restart=no",
             "--setenv=GWAY_AGENT_WORKSPACE_ROOT=" + os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", ""),
             "--setenv=GWAY_AGENT_SEED_CODEX_HOME=" + os.environ.get("GWAY_AGENT_SEED_CODEX_HOME", ""),
             # The user-systemd manager does not inherit the invoking MCP
