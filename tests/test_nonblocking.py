@@ -92,6 +92,42 @@ class NonblockingTests(unittest.TestCase):
         self.assertEqual(self.send()["state"], "already_requested")
         self.assertEqual(self.send("owner/repo#2")["state"], "requested")
 
+    def test_pending_only_cancellation_reuses_stop_and_keeps_identity(self):
+        self.assertEqual(self.send()["state"], "requested")
+        stopped = Mock(side_effect=[
+            Mock(returncode=0, stdout=""),
+            Mock(returncode=3, stdout="inactive\\n")])
+        result = release(REF, AT, state_dir=self.root,
+                         runner=stopped, pending_only=True)
+        self.assertEqual(result["state"], "released")
+        self.assertEqual(stopped.call_count, 2)
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "released")
+        self.assertEqual(self.send()["state"], "already_requested")
+
+    def test_pending_only_cannot_cancel_accepted_worker(self):
+        self.send()
+        normalized = "2026-10-13T15:00:00.000000Z"
+        (self.root / "accepted.jsonl").write_text(
+            json.dumps({"issue": REF, "at": normalized}) + "\\n")
+        runner = Mock()
+        with self.assertRaisesRegex(ValueError, "reservation_already_accepted"):
+            release(REF, AT, state_dir=self.root, runner=runner,
+                    pending_only=True)
+        runner.assert_not_called()
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"],
+                         "accepted")
+        self.assertFalse((self.root / "released").exists())
+
+    def test_pending_only_ambiguous_stop_never_cancels(self):
+        self.send()
+        runner = Mock(return_value=Mock(returncode=1, stdout=""))
+        with self.assertRaisesRegex(ValueError, "unit_stop_unconfirmed"):
+            release(REF, AT, state_dir=self.root, runner=runner,
+                    pending_only=True)
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"],
+                         "requested")
+        self.assertFalse((self.root / "released").exists())
+
     def test_operator_release_uses_verified_same_user_bus(self):
         self.send(exit_code=1)
         runner = Mock(side_effect=[Mock(returncode=0, stdout=""),
