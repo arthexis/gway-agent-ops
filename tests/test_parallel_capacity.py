@@ -62,6 +62,15 @@ class CapacityTests(unittest.TestCase):
                            state_dir=self.root):
                 pass
 
+    def test_repository_alias_casing_cannot_bypass_checkout_lock(self):
+        self.assertEqual(self.submit("Owner/Repo#1")["state"], "requested")
+        attempt = self.submit("owner/repo#2")
+        self.assertEqual(attempt["state"], "busy")
+        self.assertEqual(attempt["reason"], "repository_active")
+        with self.assertRaises(Busy):
+            with admission("owner/repo#3", AT, state_dir=self.root):
+                pass
+
     def test_pending_reservation_is_counted_during_worker_admission(self):
         self.submit("owner/one#1")
         self.submit("owner/two#1")
