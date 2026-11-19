@@ -1,9 +1,10 @@
-"""Conservative recovery of stale, never-accepted systemd submissions.
+"""Conservative recovery of stale systemd submissions and stopped workers.
 
 No process is stopped automatically. A stale timestamp by itself grants no
 authority. Only an absent, inactive, job-free systemd transient unit may be
-retired using the existing idempotent release journal. Accepted Codex work
-and externally managed administrative effects are never inferred complete.
+retired using the existing idempotent release journal. Accepted work with a
+bound request marker can be marked interrupted, never successfully completed;
+externally managed administrative effects are never inferred complete.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from .dispatch import DEFAULT_STATE
 from .runtime import systemd_user_environment
 
 PENDING_GRACE = timedelta(minutes=5)
+ACCEPTED_GRACE = timedelta(minutes=65)
 
 
 def _absent_unit(ref: str, at: str, *, runner) -> bool:
@@ -49,10 +51,11 @@ def _absent_unit(ref: str, at: str, *, runner) -> bool:
 def reconcile_pending(*, state_dir: Path | None = None,
                       now: datetime | None = None,
                       runner=subprocess.run) -> dict:
-    """Recover only stale never-accepted requests with proven absent workers.
+    """Retire stale systemd requests only after proven supervisor absence.
 
-    No retry and no release for accepted, running, unknown or malformed work.
-    Other repositories can be admitted under the separate capacity policy.
+    Unfinished accepted jobs require a matching request marker and a longer
+    runtime grace; they produce an interruption receipt, never a success.
+    No retry is ever performed. Direct/legacy jobs stay untouched.
     """
     root = Path(state_dir or DEFAULT_STATE)
     current = now or datetime.now(timezone.utc)
@@ -61,15 +64,25 @@ def reconcile_pending(*, state_dir: Path | None = None,
     retired = []
     unresolved_pending = []
     for ref, at, state in unresolved(root):
-        if state not in ("requested", "launch_unconfirmed"):
+        if state not in ("requested", "launch_unconfirmed", "accepted"):
             continue
+        if state == "accepted":
+            # The legacy direct CLI has no request marker and must use its
+            # separately attested direct_recovery mechanism.
+            from .reporting import _key
+            marker = root / "requests" / (_key(ref, at) + ".json")
+            if marker.is_symlink():
+                raise ValueError("unsafe request journal")
+            if not marker.is_file():
+                continue
         try:
             since = datetime.fromisoformat(at.replace("Z", "+00:00"))
         except ValueError:
             raise ValueError("invalid pending request timestamp") from None
         if since.tzinfo is None:
             raise ValueError("naive pending request timestamp")
-        if current - since < PENDING_GRACE:
+        grace = ACCEPTED_GRACE if state == "accepted" else PENDING_GRACE
+        if current - since < grace:
             continue
         try:
             absent = _absent_unit(ref, at, runner=runner)
