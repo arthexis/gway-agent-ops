@@ -196,7 +196,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
 
 
 def release(ref: str, at: str, *, state_dir: Path | None = None,
-            runner=subprocess.run) -> dict:
+            runner=subprocess.run, pending_only: bool = False) -> dict:
     """Administratively retire a request after stopping its systemd unit.
 
     No automatic retry. A new submission requires a different timestamp.
@@ -226,8 +226,11 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
         record = json.loads(marker.read_text(encoding="utf-8"))
         if record.get("issue") != ref or record.get("at") != at:
             raise ValueError("invalid request journal")
-        if observe(ref, at, state_dir=root)["state"] in _TERMINAL:
+        observed = observe(ref, at, state_dir=root)["state"]
+        if observed in _TERMINAL:
             return {"issue": ref, "at": at, "state": "already_terminal"}
+        if pending_only and observed not in ("requested", "launch_unconfirmed"):
+            raise ValueError("reservation_already_accepted")
         from .capacity import locked, repo_lock
         if locked(root / "execution.lock") or locked(repo_lock(root, ref)):
             raise ValueError("execution_active")
@@ -241,8 +244,11 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 raise ValueError("execution_active") from exc
             # Codex may have persisted its terminal result while we waited
             # for execution.lock. Do not stop or relabel a completed process.
-            if observe(ref, at, state_dir=root)["state"] in _TERMINAL:
+            observed = observe(ref, at, state_dir=root)["state"]
+            if observed in _TERMINAL:
                 return {"issue": ref, "at": at, "state": "already_terminal"}
+            if pending_only and observed not in ("requested", "launch_unconfirmed"):
+                raise ValueError("reservation_already_accepted")
             # Validate the acceptance journal while holding both locks.
             # Release is an explicit operator reconciliation of Codex, not
             # an assertion that external administrative jobs have ended.
@@ -259,6 +265,10 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                         raise ValueError("invalid acceptance journal")
                     if accepted["issue"] == ref and accepted["at"] == at:
                         was_accepted = True
+            # Reject an accepted worker even if observation was briefly stale;
+            # a pending-only cancellation must never relabel Codex execution.
+            if pending_only and was_accepted:
+                raise ValueError("reservation_already_accepted")
             # The same UID's existing systemd bus must be available before
             # operator reconciliation changes any journal state.
             user_env = systemd_user_environment()
