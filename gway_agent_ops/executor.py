@@ -1,4 +1,4 @@
-"""Synchronous, one-shot Codex issue runner.
+"""Bounded, per-repository Codex issue runner.
 
 A3.4 will supply GitHub result reporting and durable failure outbox.
 """
@@ -66,8 +66,8 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
             timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
             state_dir: Path | None = None, runtime=runtime_context) -> dict:
     """Report Codex process outcome without attesting administrative side effects."""
-    if not 1 <= timeout_seconds <= 7200:
-        raise ValueError("timeout must be 1..7200 seconds")
+    if not 1 <= timeout_seconds <= 3600:
+        raise ValueError("timeout must be 1..3600 seconds")
     issue = resolver(ref, repo=repo)
     key = f'{issue["repository"]}#{issue["number"]}'
     root = Path(workspace_root).resolve(strict=True)
