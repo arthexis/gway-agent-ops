@@ -23,7 +23,7 @@ def capacity() -> int:
 
 
 def repo_lock(root: Path, issue: str) -> Path:
-    repo = issue.split("#", 1)[0]
+    repo = issue.split("#", 1)[0].casefold()
     return root / ("execution-repo-" + hashlib.sha256(repo.encode()).hexdigest()[:24] + ".lock")
 
 
