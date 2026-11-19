@@ -103,17 +103,19 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
     lock = requests / "submission.lock"
     if lock.is_symlink() or marker.is_symlink():
         raise ValueError("unsafe_dispatch_path")
-    # A replay must be a purely local, non-executing lookup. In particular,
-    # it must not contact systemd or recover another request.
-    if marker.exists():
-        return {"issue": ref, "at": at, "state": "already_requested"}
-    # Reconcile old never-started units before counting occupied slots.
-    from .stale_recovery import reconcile_pending
-    reconcile_pending(state_dir=root, runner=runner)
+    # A replay must not contact systemd. Read/validate its marker only after
+    # acquiring the submission gate to avoid observing an unflushed JSON file.
+    if not marker.exists():
+        from .stale_recovery import reconcile_pending
+        reconcile_pending(state_dir=root, runner=runner)
     descriptor = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         if marker.exists():
+            existing = json.loads(marker.read_text(encoding="utf-8"))
+            if (type(existing) is not dict
+                    or existing.get("issue") != ref or existing.get("at") != at):
+                raise ValueError("invalid request journal")
             return {"issue": ref, "at": at, "state": "already_requested"}
         # The global execution lock is respected only for an older installed
         # single-slot worker. New workers hold repository-specific locks and
