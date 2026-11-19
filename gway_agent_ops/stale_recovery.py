@@ -71,7 +71,11 @@ def reconcile_pending(*, state_dir: Path | None = None,
             raise ValueError("naive pending request timestamp")
         if current - since < PENDING_GRACE:
             continue
-        if not _absent_unit(ref, at, runner=runner):
+        try:
+            absent = _absent_unit(ref, at, runner=runner)
+        except (ValueError, OSError, subprocess.TimeoutExpired):
+            absent = False
+        if not absent:
             unresolved_pending.append(ref)
             continue
         # release() acquires the normal submission gate, independently
