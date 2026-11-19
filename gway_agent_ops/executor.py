@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .dispatch import Busy, Duplicate, admission, timestamp
 from .github_issues import IssueRejected, resolve
-from .runtime import runtime_context
+from .runtime import runtime_context, resolve_codex_binary
 from .reporting import enqueue, recover
 from .findings import parse_findings
 
@@ -82,6 +82,12 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         raise ExecutionError("agent_auth_unavailable")
     if not (Path(context["codex_home"]) / "config.toml").is_file():
         raise ExecutionError("agent_config_unavailable")
+    # Resolve before acceptance, so a missing executable does not create an
+    # ambiguous durable request. Use the pinned absolute target in the worker.
+    try:
+        codex_executable = resolve_codex_binary(environment=context["environment"])
+    except ValueError as exc:
+        raise ExecutionError("codex_unavailable") from exc
     at = timestamp(at)
     prompt = build_issue_prompt(issue)
     digest = hashlib.sha256((issue["title"] + "\n" + issue["body"]).encode()).hexdigest()
@@ -93,7 +99,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
             process = runner(
                 # The adopted CODEX_HOME owns sandbox and approval policy.
                 # Do not override its existing configuration from AgentOps.
-                ["codex", "exec", "-"],
+                [codex_executable, "exec", "-"],
                 input=prompt, cwd=resolved, env=context["environment"],
                 text=True, capture_output=True, timeout=timeout_seconds, check=False,
             )

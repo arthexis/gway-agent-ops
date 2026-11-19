@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from gway_agent_ops.runtime import (
     runtime_context, _same_user_runtime_dir, systemd_user_environment,
+    resolve_codex_binary,
 )
 
 
@@ -35,6 +36,31 @@ class RuntimeTests(unittest.TestCase):
             self.assertNotIn(key, context["environment"])
         self.assertFalse(context["authentication_available"])
         self.assertEqual(context["isolation"], "environment-only")
+
+    def test_codex_resolution_ignores_missing_nonlogin_path(self):
+        owner_bin = self.root / "home" / ".local" / "bin"
+        owner_bin.mkdir(parents=True)
+        target = self.root / "release-codex"
+        target.write_text("#!/bin/sh\\nexit 0\\n")
+        target.chmod(0o700)
+        (owner_bin / "codex").symlink_to(target)
+        self.assertEqual(resolve_codex_binary(
+            home=self.root / "home", environment={"PATH": "/usr/bin"}),
+            str(target.resolve()))
+
+    def test_codex_resolution_requires_owned_executable(self):
+        owner_bin = self.root / "home" / ".local" / "bin"
+        owner_bin.mkdir(parents=True)
+        candidate = owner_bin / "codex"
+        candidate.write_text("not executable")
+        candidate.chmod(0o600)
+        # Ensure system paths do not accidentally satisfy this negative test.
+        with patch("gway_agent_ops.runtime.Path.resolve",
+                   side_effect=lambda strict=False: (_ for _ in ()).throw(
+                       FileNotFoundError("simulated unavailable"))):
+            with self.assertRaisesRegex(ValueError, "codex_executable_unavailable"):
+                resolve_codex_binary(home=self.root / "home",
+                                     environment={"PATH": "/untrusted"})
 
     def test_rejects_world_readable_config(self):
         self.config.chmod(0o644)

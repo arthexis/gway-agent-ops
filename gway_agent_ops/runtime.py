@@ -99,3 +99,31 @@ def runtime_context(*, root: Path | None = None, env: dict | None = None,
     return {"environment": safe, "codex_home": str(codex),
             "authentication_available": auth.is_file(),
             "isolation": "same-user-seed-reference" if seed else "environment-only"}
+
+
+def resolve_codex_binary(*, home: Path | None = None,
+                         environment: dict[str, str] | None = None) -> str:
+    """Pin an executable that survives detached systemd's non-login PATH.
+
+    The local installation user and root-controlled system locations are
+    authoritative. Never infer a binary from issue data or scan workspaces.
+    Return its resolved path (not a mutable symlink) before accepting work.
+    """
+    owner_home = Path(home or Path.home())
+    candidates = (
+        owner_home / ".local/bin/codex",
+        Path("/usr/local/bin/codex"),
+        Path("/usr/bin/codex"),
+    )
+    for candidate in candidates:
+        try:
+            target = candidate.resolve(strict=True)
+            info = target.stat()
+        except (OSError, RuntimeError):
+            continue
+        if (not stat.S_ISREG(info.st_mode)
+                or info.st_uid not in (0, os.getuid())
+                or not os.access(target, os.X_OK)):
+            continue
+        return str(target)
+    raise ValueError("codex_executable_unavailable")
