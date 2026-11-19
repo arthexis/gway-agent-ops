@@ -98,6 +98,10 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
     _private_directory(root)
     requests = root / "requests"
     _private_directory(requests)
+    # Reconcile old never-started units with proof of systemd absence before
+    # charging them against capacity. Do not recover accepted/running jobs.
+    from .stale_recovery import reconcile_pending
+    reconcile_pending(state_dir=root, runner=runner)
     digest = hashlib.sha256((ref + "\n" + at).encode()).hexdigest()
     marker = requests / (digest + ".json")
     lock = requests / "submission.lock"
