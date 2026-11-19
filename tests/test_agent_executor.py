@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from gway_agent_ops.executor import execute, ExecutionError
 from gway_agent_ops.dispatch import Duplicate, Busy, admission, timestamp
@@ -41,11 +42,13 @@ class ExecutionTests(unittest.TestCase):
                 'approval_policy = "never"\n')
             return {"codex_home": str(home), "authentication_available": True,
                     "environment": {"CODEX_HOME": str(home), "PATH": "/usr/bin"}}
-        result = execute("arthexis/example#19", at="2026-10-13T01:00:00Z",
-                         allowed_repositories=("arthexis/example",),
-                         workspace_root=self.root, state_dir=self.state,
-                         resolver=resolver, runner=override or runner,
-                         runtime=runtime, **kwargs)
+        with patch("gway_agent_ops.executor.resolve_codex_binary",
+                   return_value="/verified/bin/codex"):
+            result = execute("arthexis/example#19", at="2026-10-13T01:00:00Z",
+                             allowed_repositories=("arthexis/example",),
+                             workspace_root=self.root, state_dir=self.state,
+                             resolver=resolver, runner=override or runner,
+                             runtime=runtime, **kwargs)
         return result, seen
 
     def test_normal_zero_is_codex_finished_not_host_complete(self):
@@ -55,7 +58,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result["comment_baseline"], 6)
         self.assertTrue(result["issue_revision"].startswith("sha256:"))
         argv, options = seen[0]
-        self.assertEqual(argv, ["codex", "exec", "-"])
+        self.assertEqual(argv, ["/verified/bin/codex", "exec", "-"])
         self.assertEqual(options["cwd"], self.checkout)
         self.assertIn("Body", options["input"])
         self.assertNotIn("TOKEN-NEVER-PRINT", str(result))
@@ -75,7 +78,7 @@ class ExecutionTests(unittest.TestCase):
         seen = []
         result, _ = self.call(seen=seen)
         argv, options = seen[0]
-        self.assertEqual(argv, ["codex", "exec", "-"])
+        self.assertEqual(argv, ["/verified/bin/codex", "exec", "-"])
         self.assertNotIn("--sandbox", argv)
         self.assertNotIn("--ask-for-approval", argv)
         self.assertNotIn("--config", argv)
