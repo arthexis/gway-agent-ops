@@ -96,7 +96,7 @@ class NonblockingTests(unittest.TestCase):
         self.assertEqual(self.send()["state"], "requested")
         stopped = Mock(side_effect=[
             Mock(returncode=0, stdout=""),
-            Mock(returncode=3, stdout="inactive\\n")])
+            Mock(returncode=3, stdout="inactive\n")])
         result = release(REF, AT, state_dir=self.root,
                          runner=stopped, pending_only=True)
         self.assertEqual(result["state"], "released")
@@ -108,7 +108,7 @@ class NonblockingTests(unittest.TestCase):
         self.send()
         normalized = "2026-10-13T15:00:00.000000Z"
         (self.root / "accepted.jsonl").write_text(
-            json.dumps({"issue": REF, "at": normalized}) + "\\n")
+            json.dumps({"issue": REF, "at": normalized}) + "\n")
         runner = Mock()
         with self.assertRaisesRegex(ValueError, "reservation_already_accepted"):
             release(REF, AT, state_dir=self.root, runner=runner,
