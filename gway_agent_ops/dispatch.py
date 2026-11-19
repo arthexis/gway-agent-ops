@@ -91,7 +91,7 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                   if (row[0], row[1]) != (issue, at)]
         if len(active) >= capacity():
             raise Busy("node execution capacity is full")
-        if any(row[0].split("#", 1)[0] == issue.split("#", 1)[0]
+        if any(row[0].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()
                for row in active):
             raise Busy("another invocation is using this repository")
         log = directory / "accepted.jsonl"
@@ -111,7 +111,7 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                         raise Duplicate("this issue and timestamp were already accepted")
                     if (observe(row["issue"], row["at"], state_dir=directory)["state"]
                             not in terminal
-                            and row["issue"].split("#", 1)[0] == issue.split("#", 1)[0]):
+                            and row["issue"].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()):
                         raise Busy("a previously accepted invocation is unresolved in this repository")
                 record = {"issue": issue, "at": at}
                 # A direct CLI worker may have a dedicated, identity-bound
