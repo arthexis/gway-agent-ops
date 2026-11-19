@@ -1,4 +1,4 @@
-"""A3.2 timestamp idempotency, serial execution and restart persistence."""
+"""A3.2 timestamp idempotency, repository isolation and restart persistence."""
 import fcntl
 import json
 import os
@@ -41,16 +41,17 @@ class DispatchTests(unittest.TestCase):
             pass
         self.assertEqual(len((self.state / "accepted.jsonl").read_text().splitlines()), 2)
 
-    def test_one_slot_across_processes(self):
+    def test_different_repositories_can_run_across_processes(self):
         with admission(self.issue, self.at, state_dir=self.state):
             program = ("from gway_agent_ops.dispatch import admission, Busy\n"
                        "from pathlib import Path\n"
                        f"try:\n with admission('arthexis/other#1', '2026-10-13T01:00:02Z', state_dir=Path({str(self.state)!r})): pass\n"
                        "except Busy: exit(42)\n")
             result = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 42, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
         self.finish(self.issue, self.at)
-        with admission("arthexis/other#1", "2026-10-13T01:00:02Z", state_dir=self.state):
+        self.finish("arthexis/other#1", "2026-10-13T01:00:02Z")
+        with admission("arthexis/other#1", "2026-10-13T01:00:03Z", state_dir=self.state):
             pass
 
     def test_normalization_and_future_date(self):
