@@ -131,7 +131,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         # Shared Git worktrees are not safe for concurrent Codex mutations.
         # Different repositories can use separate execution slots.
         same_repo = next((row for row in active
-                          if row[0].split("#", 1)[0] == ref.split("#", 1)[0]), None)
+                          if row[0].split("#", 1)[0].casefold() == ref.split("#", 1)[0].casefold()), None)
         if same_repo is not None:
             return {"issue": ref, "at": at, "state": "busy",
                     "reason": "repository_active", "active_issue": same_repo[0]}
