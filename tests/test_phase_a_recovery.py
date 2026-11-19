@@ -59,7 +59,7 @@ class PhaseARecoveryTests(unittest.TestCase):
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"],
                          "launch_unconfirmed")
         self.assertEqual(status(state_dir=self.root)["state"], "uncertain")
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
         self.assertEqual(self.submit()["state"], "already_requested")
         self.assertEqual(self.submit(ref="arthexis/example#20")["state"], "busy")
         self.assertEqual(len(list((self.root / "requests").glob("*.json"))), 1)
@@ -102,7 +102,7 @@ class PhaseARecoveryTests(unittest.TestCase):
         (self.root / "accepted.jsonl").write_text(
             json.dumps({"issue": REF, "at": normalized}) + "\n")
         external = {"unit": "synthetic-deployment.service", "alive": True}
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
         self.assertEqual(release(REF, AT, state_dir=self.root,
                                  runner=self.stopped_unit())["state"], "released")
         self.assertTrue(external["alive"])
@@ -123,7 +123,7 @@ class PhaseARecoveryTests(unittest.TestCase):
                 release(REF, AT, state_dir=self.root, runner=self.stopped_unit())
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "accepted")
         self.assertFalse((self.root / "released").exists())
-        self.assertFalse(status(state_dir=self.root)["available"])
+        self.assertEqual(status(state_dir=self.root)["active_count"], 1)
 
     def test_malformed_acceptance_journal_fails_closed_without_stopping_unit(self):
         self.submit()
