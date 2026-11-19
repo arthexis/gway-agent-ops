@@ -11,13 +11,44 @@ class McpStdioTests(unittest.TestCase):
         response = mcp_stdio.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {tool["name"] for tool in response["result"]["tools"]}
         self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit",
-                                 "schedule", "scheduled_list", "scheduled_get", "schedule_cancel",
+                                 "reservation_cancel", "schedule", "scheduled_list", "scheduled_get", "schedule_cancel",
                                  "recurring_create", "recurring_list", "recurring_get",
                                  "recurring_pause", "recurring_resume", "recurring_cancel"})
-        writes = ("submit", "schedule", "schedule_cancel", "recurring_create",
+        writes = ("submit", "reservation_cancel", "schedule", "schedule_cancel", "recurring_create",
                   "recurring_pause", "recurring_resume", "recurring_cancel")
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in writes)
                             for tool in response["result"]["tools"]))
+
+    def test_reservation_cancel_uses_existing_release_without_extra_auth(self):
+        args = {"ref": "arthexis/ocpp-reports#264",
+                "at": "2026-11-19T21:16:50.159883Z"}
+        with patch.object(mcp_stdio, "issue_release",
+                          return_value={"state": "released"}) as release:
+            self.assertEqual(mcp_stdio.call_tool("reservation_cancel", args),
+                             {"state": "released"})
+            release.assert_called_once_with(args["ref"], args["at"],
+                                            pending_only=True)
+
+    def test_reservation_cancel_never_reports_accepted_as_cancelled(self):
+        args = {"ref": "arthexis/ocpp-reports#264",
+                "at": "2026-11-19T21:16:50.159883Z"}
+        with patch.object(mcp_stdio, "issue_release",
+                          side_effect=ValueError("reservation_already_accepted")):
+            reply = mcp_stdio.handle({"jsonrpc": "2.0", "id": 11,
+                "method": "tools/call", "params": {
+                    "name": "reservation_cancel", "arguments": args}})
+        self.assertTrue(reply["result"]["isError"])
+        self.assertEqual(json.loads(reply["result"]["content"][0]["text"]),
+                         {"error": "reservation_already_accepted"})
+
+    def test_cancel_invalid_input_never_reaches_release(self):
+        with patch.object(mcp_stdio, "issue_release") as release:
+            for args in ({}, {"ref": "bad", "at": "2026-11-19T20:00:00Z"},
+                         {"ref": "owner/repo#1", "at": 13},
+                         {"ref": "owner/repo#1", "at": "x", "extra": 1}):
+                with self.subTest(args=args), self.assertRaises(ValueError):
+                    mcp_stdio.call_tool("reservation_cancel", args)
+            release.assert_not_called()
 
     def test_scheduled_mcp_routes_reuse_existing_scheduler_authority(self):
         # The federated gateway enforces gway:execute; the provider must not
