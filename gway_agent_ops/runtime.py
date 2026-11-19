@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import stat
-import shutil
 from pathlib import Path
 
 DEFAULT_ROOT = Path.home() / ".local/share/gway-agent-ops"
