@@ -61,8 +61,8 @@ timestamps and never mutate disk. An invalid snapshot reports
 Disk-write failures disable optional telemetry but never abort an
 already-authorized invocation.
 
-The CLI/MCP contracts and authorization are unchanged. Snapshot retention
-is bounded to **one record per accepted invocation**; clean-up may be
-performed only by a lifecycle-aware maintenance path and must not remove
-active identities. This PR makes no deployments, changes to timers or
+The CLI/MCP contracts and authorization are unchanged. Snapshots are removed only after a durable terminal report or an explicit
+administrative release. Interrupted/uncertain identities retain their single
+identity-bound snapshot for diagnosis until reconciled. Active files are never
+pruned by age or arbitrary quotas. This PR makes no deployments, changes to timers or
 Android/UI surfaces.

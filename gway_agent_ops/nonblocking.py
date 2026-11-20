@@ -338,6 +338,9 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 os.fsync(directory)
             finally:
                 os.close(directory)
+            # Cleanup follows durable release; never changes execution identity.
+            from .progress import discard_progress
+            discard_progress(ref, at, state_dir=root)
             return {"issue": ref, "at": at, "state": "released"}
         finally:
             os.close(execution_fd)

@@ -110,8 +110,8 @@ class ExecutionTests(unittest.TestCase):
         final = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
                         state_dir=self.state)
         self.assertNotIn("progress", final)
-        self.assertEqual(read_progress("arthexis/example#19", "2026-10-13T01:00:00Z",
-                                       state_dir=self.state)["phase"], "finalizing")
+        self.assertIsNone(read_progress("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                        state_dir=self.state))
 
     def test_timeout_keeps_accepted_and_progress_uncertain(self):
         def timed_out(argv, **kwargs):

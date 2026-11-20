@@ -124,6 +124,7 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
                     exit_code=process.returncode, findings=findings,
                     findings_state=("validated" if findings else "missing_or_invalid")
                     if process.returncode == 0 else None)
+            progress.terminal_report_persisted()
         return {"issue": key, "at": accepted["at"], "url": issue["url"],
                 "issue_revision": "sha256:" + digest,
                 "comment_baseline": issue["comments"],

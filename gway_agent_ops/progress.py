@@ -67,6 +67,7 @@ class ProgressRecorder:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._enabled = False
+        self._report_persisted = False
         started = _format(_utc_now())
         self._record = {
             "schema": SCHEMA,
@@ -126,10 +127,35 @@ class ProgressRecorder:
             except (OSError, ValueError):
                 self._enabled = False
 
+    def terminal_report_persisted(self) -> None:
+        """Called only after the existing terminal outbox fsync succeeded."""
+        self._report_persisted = True
+
     def __exit__(self, exc_type, exc, tb) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2)
+        if self._report_persisted:
+            discard_progress(self.ref, self.at, state_dir=self.root)
+
+
+def discard_progress(ref: str, at: str, *, state_dir: Path | None = None) -> None:
+    """Best-effort cleanup only after a durable terminal or release marker."""
+    root = Path(state_dir or DEFAULT_STATE)
+    folder = root / "progress"
+    if folder.is_symlink() or not folder.is_dir():
+        return
+    try:
+        folder_info = folder.lstat()
+        if folder_info.st_uid != os.getuid() or folder_info.st_mode & 0o077:
+            return
+        path = _file(root, ref, timestamp(at))
+        info = path.lstat()
+        if (stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
+                and not info.st_mode & 0o077):
+            path.unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def read_progress(ref: str, at: str, *, state_dir: Path | None = None,
