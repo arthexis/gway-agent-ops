@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .dispatch import DEFAULT_STATE, ISSUE, timestamp
 from .reporting import _key, _validate_report
+from .progress import read_progress
 
 
 def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
@@ -94,7 +95,12 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                     "findings_state": report.get("findings_state"),
                     "delivery_attempted": report.get("delivery_attempted", False), "delivery_confirmed": False,
                     "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
-    return {"issue": ref, "at": at, "state": "accepted", **_provenance(root, ref, at)}
+    result = {"issue": ref, "at": at, "state": "accepted",
+              **_provenance(root, ref, at)}
+    progress = read_progress(ref, at, state_dir=root)
+    if progress is not None:
+        result["progress"] = progress
+    return result
 
 
 def _pending_request(root: Path, ref: str, at: str) -> dict:

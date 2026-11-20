@@ -90,6 +90,42 @@ class ExecutionTests(unittest.TestCase):
                          'approval_policy = "never"\n')
         self.assertEqual(result["status"], "finished")
 
+    def test_runner_progress_is_visible_inside_codex_call_and_private(self):
+        from gway_agent_ops.progress import read_progress
+        seen = []
+        def running(argv, **kwargs):
+            observed = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                               state_dir=self.state)
+            self.assertEqual(observed["state"], "accepted")
+            progress = observed["progress"]
+            self.assertEqual(progress["phase"], "executing")
+            self.assertEqual(progress["freshness"], "fresh")
+            self.assertEqual(progress["functional_phase"], "unknown")
+            self.assertNotIn("TOKEN", str(progress))
+            seen.append(progress)
+            return subprocess.CompletedProcess(argv, 0, "private-output", "")
+        result, _ = self.call(runner_override=running)
+        self.assertEqual(result["status"], "finished")
+        self.assertEqual(len(seen), 1)
+        final = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                        state_dir=self.state)
+        self.assertNotIn("progress", final)
+        self.assertEqual(read_progress("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                       state_dir=self.state)["phase"], "finalizing")
+
+    def test_timeout_keeps_accepted_and_progress_uncertain(self):
+        def timed_out(argv, **kwargs):
+            self.assertEqual(observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                                     state_dir=self.state)["progress"]["phase"], "executing")
+            raise subprocess.TimeoutExpired(argv, 1)
+        with self.assertRaisesRegex(ExecutionError, "codex_timeout"):
+            self.call(runner_override=timed_out)
+        observed = observe("arthexis/example#19", "2026-10-13T01:00:00Z",
+                           state_dir=self.state)
+        self.assertEqual(observed["state"], "accepted")
+        self.assertEqual(observed["progress"]["phase"], "uncertain")
+        self.assertFalse(observed.get("execution_terminal", False))
+
     def test_normal_nonzero_is_codex_failed_not_host_complete(self):
         seen = []
         def failed_runner(argv, **kwargs):
