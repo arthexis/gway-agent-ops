@@ -14,6 +14,7 @@ from .github_issues import IssueRejected, resolve
 from .runtime import runtime_context, resolve_codex_binary
 from .reporting import enqueue, recover
 from .findings import parse_findings
+from .progress import ProgressRecorder
 
 
 class ExecutionError(RuntimeError):
@@ -95,35 +96,35 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         # The lock is held while reconciling old crashes. Current dispatch
         # must never be interpreted as interrupted while still running.
         recover(state_dir=state_dir, active=(key, accepted["at"]))
-        try:
-            process = runner(
-                # The adopted CODEX_HOME owns sandbox and approval policy.
-                # Do not override its existing configuration from AgentOps.
-                [codex_executable, "exec", "-"],
-                input=prompt, cwd=resolved, env=context["environment"],
-                text=True, capture_output=True, timeout=timeout_seconds, check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            # subprocess.run kills and waits for the immediate child on a
-            # timeout, but cannot prove all grandchildren terminated (a child
-            # can have started a different process group or systemd scope).
-            # Keep this accepted identity unresolved rather than creating a
-            # fabricated terminal "interrupted" report and freeing admission.
-            raise ExecutionError("codex_timeout") from exc
-        except OSError as exc:
-            # Spawn failure is not a durable proof of absent descendants:
-            # never turn ambiguous execution into a terminal delivery record.
-            raise ExecutionError("codex_unavailable") from exc
-        # Normal exit proves the Codex process returned, not that services,
-        # deployments or independently managed administrative jobs ended.
-        # fsync the report before the admission lock is released. A failed
-        # report write keeps the accepted journal unresolved.
-        findings = parse_findings(process.stdout) if process.returncode == 0 else None
-        enqueue(key, accepted["at"], state_dir=state_dir,
-                status="finished" if process.returncode == 0 else "codex_failed",
-                exit_code=process.returncode, findings=findings,
-                findings_state=("validated" if findings else "missing_or_invalid")
-                if process.returncode == 0 else None)
+        # Optional, private heartbeat does not alter the subprocess, locks,
+        # output capture, timeout handling or durable terminal authority.
+        with ProgressRecorder(key, accepted["at"], state_dir=state_dir) as progress:
+            progress.mark("executing")
+            try:
+                process = runner(
+                    # The adopted CODEX_HOME owns sandbox and approval policy.
+                    # Do not override its existing configuration from AgentOps.
+                    [codex_executable, "exec", "-"],
+                    input=prompt, cwd=resolved, env=context["environment"],
+                    text=True, capture_output=True, timeout=timeout_seconds, check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                # Child/descendant termination is not proven by subprocess.run.
+                # The accepted identity remains unresolved until manual recovery.
+                progress.mark("uncertain")
+                raise ExecutionError("codex_timeout") from exc
+            except OSError as exc:
+                progress.mark("uncertain")
+                raise ExecutionError("codex_unavailable") from exc
+            # A returned Codex process is not evidence about external effects.
+            progress.mark("finalizing")
+            findings = parse_findings(process.stdout) if process.returncode == 0 else None
+            enqueue(key, accepted["at"], state_dir=state_dir,
+                    status="finished" if process.returncode == 0 else "codex_failed",
+                    exit_code=process.returncode, findings=findings,
+                    findings_state=("validated" if findings else "missing_or_invalid")
+                    if process.returncode == 0 else None)
+            progress.terminal_report_persisted()
         return {"issue": key, "at": accepted["at"], "url": issue["url"],
                 "issue_revision": "sha256:" + digest,
                 "comment_baseline": issue["comments"],

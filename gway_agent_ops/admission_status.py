@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .dispatch import DEFAULT_STATE
 from .capacity import capacity, locked, repo_lock, unresolved
+from .observation import observe
 
 
 def status(*, state_dir: Path | None = None) -> dict:
@@ -37,10 +38,15 @@ def status(*, state_dir: Path | None = None) -> dict:
         state = "reserved"
     else:
         state = "uncertain"
-    reservations = [
-        {"issue": ref, "at": at, "state": observed}
-        for ref, at, observed in active
-    ]
+    reservations = []
+    for ref, at, observed in active:
+        row = {"issue": ref, "at": at, "state": observed}
+        # Retain old admission fields. Progress is optional and can never
+        # override an accepted/terminal identity or a repository lock.
+        progress = observe(ref, at, state_dir=root).get("progress")
+        if progress is not None:
+            row["progress"] = progress
+        reservations.append(row)
     return {"state": state,
             "available": (not legacy_busy and not gate_busy
                           and not orphan_locks and count < limit),
