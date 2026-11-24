@@ -132,6 +132,11 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
             # rejected before ownership transferred.
             raise
         fcntl.flock(gate_fd, fcntl.LOCK_UN)
+        try:
+            from .activity_feed import publish
+            publish(issue, at, "accepted")
+        except Exception:
+            pass
         yield record
     finally:
         os.close(descriptor)
