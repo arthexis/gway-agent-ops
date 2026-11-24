@@ -338,6 +338,11 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
                 os.fsync(directory)
             finally:
                 os.close(directory)
+            try:
+                from .activity_feed import publish
+                publish(ref, at, "released")
+            except Exception:
+                pass
             # Cleanup follows durable release; never changes execution identity.
             from .progress import discard_progress
             discard_progress(ref, at, state_dir=root)
