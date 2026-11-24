@@ -119,8 +119,8 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     # The verified job report is already durable. Notification failures
     # cannot alter reporting, release/admission or Codex results. Duplicate
     # enqueue reads the existing record above and never replays the sound.
-    if os.environ.get("GWAY_AGENTOPS_LCD_NOTIFICATIONS") == "1":
-        from .lcd_notification import publish_terminal
+    from .lcd_notification import enabled, publish_terminal
+    if enabled():
         publish_terminal(record)
     return record
 
