@@ -116,6 +116,12 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     elif findings is not None:
         raise ValueError("findings state required")
     _write(path, record)
+    # The verified job report is already durable. Notification failures
+    # cannot alter reporting, release/admission or Codex results. Duplicate
+    # enqueue reads the existing record above and never replays the sound.
+    if os.environ.get("GWAY_AGENTOPS_LCD_NOTIFICATIONS") == "1":
+        from .lcd_notification import publish_terminal
+        publish_terminal(record)
     return record
 
 
