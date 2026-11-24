@@ -45,6 +45,22 @@ def payload(report, *, node=None):
     }
 
 
+def enabled(*, home=None):
+    """Explicit opt-in without changing Codex process or scheduler identity."""
+    if os.environ.get("GWAY_AGENTOPS_LCD_NOTIFICATIONS") == "1":
+        return True
+    home = Path.home() if home is None else Path(home)
+    path = home / ".config/gway-agent-ops/lcd-notifications.enabled"
+    try:
+        info = path.lstat()
+        return (path.is_file() and not path.is_symlink()
+                and info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0
+                and path.stat().st_size <= 16
+                and path.read_text(encoding="ascii").strip() == "enabled")
+    except (OSError, ValueError, UnicodeError):
+        return False
+
+
 def publish_terminal(report, *, node=None, runner=subprocess.run, home=None):
     """One attempt only, after durable report commit. Never fails AgentOps."""
     try:
