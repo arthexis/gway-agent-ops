@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify existing AgentOps ledger entries (operator opt-in)
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=30s
+Unit=gway-agent-ops-reconcile.service
+
+[Install]
+WantedBy=timers.target
