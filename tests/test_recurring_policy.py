@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from gway_agent_ops.recurring_policy import RecurringPolicy
+from gway_agent_ops.recurring_policy import DailyCalendarPolicy, RecurringPolicy
 
 
 def test_fixed_issue_and_selector():
@@ -42,3 +42,26 @@ def test_next_due_skips_missed_slots_without_backlog():
     assert policy.next_due(first, now=first - timedelta(minutes=1)) == first
     with pytest.raises(ValueError):
         policy.next_due(first.replace(tzinfo=None), now=first)
+
+
+def test_daily_calendar_is_aligned_to_monterrey_and_skips_missed_slots():
+    policy = DailyCalendarPolicy(5, 0, "America/Monterrey")
+    assert policy.next_due(now=datetime(2026, 11, 24, 10, 59, tzinfo=timezone.utc)) == datetime(2026, 11, 24, 11, tzinfo=timezone.utc)
+    assert policy.next_due(now=datetime(2026, 11, 24, 11, tzinfo=timezone.utc)) == datetime(2026, 11, 25, 11, tzinfo=timezone.utc)
+    assert policy.next_due(now=datetime(2026, 11, 27, 15, tzinfo=timezone.utc)) == datetime(2026, 11, 28, 11, tzinfo=timezone.utc)
+
+
+def test_daily_calendar_dst_gap_and_fold():
+    gap = DailyCalendarPolicy(2, 30, "America/New_York")
+    assert gap.next_due(now=datetime(2026, 3, 8, 5, tzinfo=timezone.utc)) == datetime(2026, 3, 9, 6, 30, tzinfo=timezone.utc)
+    fold = DailyCalendarPolicy(1, 30, "America/New_York")
+    assert fold.next_due(now=datetime(2026, 11, 1, 4, tzinfo=timezone.utc)) == datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc)
+    assert fold.next_due(now=datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc)) == datetime(2026, 11, 2, 6, 30, tzinfo=timezone.utc)
+
+
+def test_daily_calendar_rejects_invalid_input():
+    for args in [(24, 0, "UTC"), (5, 60, "UTC"), (True, 0, "UTC"), (5, 0, "bad/zone")]:
+        with pytest.raises(ValueError):
+            DailyCalendarPolicy(*args)
+    with pytest.raises(ValueError, match="timezone_required"):
+        DailyCalendarPolicy(5, 0, "UTC").next_due(now=datetime(2026, 1, 1))
