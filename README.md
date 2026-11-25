@@ -8,8 +8,19 @@ ad-hoc state under the GWAY field workspace.
 On the appliance, use the owner-managed `deploy.sh` with a pinned checkout:
 
 ```sh
-sh ./deploy.sh --expected-sha "$(git rev-parse HEAD)"
+sh ./deploy.sh --expected-sha "$APPROVED_SHA"
 ```
+
+Set `APPROVED_SHA` to the exact reviewed full commit SHA (not an unchecked
+local HEAD). Verify the detached checkout matches it and execution admission is
+idle before installation. Invoke through `sh`: the tracked script need not be
+executable. **Do not pass `--apply`, `--dry-run`, or `--json` for installation**;
+all three are prune-only options, and normal installation already prints JSON.
+The wrapper publishes the revision-pinned provider through Ansible after the
+installer succeeds. Verify both the installed CLI and manifest revision, and
+preserve existing timers. For a user-bus probe from a non-login shell, use the
+verified same-user `/run/user/$(id -u)/bus` with `XDG_RUNTIME_DIR` and
+`DBUS_SESSION_BUS_ADDRESS` set accordingly.
 
 This installs an immutable `~/.local/share/gway-agent-ops/releases/<SHA>`
 environment and atomically updates `~/.local/bin/agent`. The installer holds
@@ -298,9 +309,9 @@ the dedicated S5 field issue before marking this stage complete.
 The release owner can inspect prior releases without changing services or persistent data:
 
 ```sh
-./deploy.sh --prune
-./deploy.sh --prune --json
-./deploy.sh --prune --apply
+sh ./deploy.sh --prune
+sh ./deploy.sh --prune --json
+sh ./deploy.sh --prune --apply
 ```
 
 Dry-run is the default; `--apply` is an explicit destructive operation. Only owner-managed
