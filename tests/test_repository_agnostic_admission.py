@@ -26,7 +26,8 @@ def metadata(repo="arthexis/ocpp-reports", owner="arthexis", labels=None):
 
 def gh_fixture(data, code=0):
     def runner(argv, **opts):
-        assert argv == ["gh", "api", f"repos/{data['repository_url'].split('/repos/')[1]}/issues/211"]
+        assert argv == ["gh", "api", "--hostname", "github.com",
+                        f"repos/{data['repository_url'].split('/repos/')[1]}/issues/211"]
         assert "shell" not in opts
         assert "GH_TOKEN" not in opts["env"]
         return subprocess.CompletedProcess(argv, code, json.dumps(data), "")

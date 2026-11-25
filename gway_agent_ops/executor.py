@@ -62,7 +62,7 @@ def preview(ref: str, *, allowed_repositories: tuple[str, ...] | None = None, re
             "prompt": build_issue_prompt(issue), "title": issue["title"]}
 
 
-def execute(ref: str, *, repo: str | None = None, at: str | None = None,
+def _execute(ref: str, *, repo: str | None = None, at: str | None = None,
             workspace_root: Path, allowed_repositories: tuple[str, ...] | None = None,
             timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
             state_dir: Path | None = None, runtime=runtime_context) -> dict:
@@ -71,13 +71,11 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
         raise ValueError("timeout must be 1..3600 seconds")
     issue = resolver(ref, repo=repo)
     key = f'{issue["repository"]}#{issue["number"]}'
-    root = Path(workspace_root).resolve(strict=True)
-    checkout = root.joinpath(*issue["repository"].split("/"))
-    if checkout.is_symlink() or not checkout.is_dir() or not (checkout / ".git").exists():
-        raise ExecutionError("workspace_unavailable")
-    resolved = checkout.resolve(strict=True)
-    if not resolved.is_relative_to(root):
-        raise ExecutionError("workspace_outside_root")
+    from .workspace import provision, WorkspaceError
+    try:
+        resolved = provision(workspace_root, issue["repository"])
+    except WorkspaceError as exc:
+        raise ExecutionError(str(exc)) from None
     context = runtime()
     if not context["authentication_available"]:
         raise ExecutionError("agent_auth_unavailable")
@@ -131,3 +129,57 @@ def execute(ref: str, *, repo: str | None = None, at: str | None = None,
                 "exit_code": process.returncode,
                 "admin_work_state": "not_attested",
                 "status": "finished" if process.returncode == 0 else "codex_failed"}
+
+
+def _request_transition(ref: str, at: str | None, state_dir: Path | None, state: str, code: str | None = None) -> bool:
+    """Update only an existing unaccepted systemd request under its gate."""
+    import fcntl
+    import json
+    from .dispatch import DEFAULT_STATE
+    from .observation import observe
+    from .reporting import _key, _write
+    if at is None:
+        return False
+    at = timestamp(at)
+    root = Path(state_dir or DEFAULT_STATE)
+    marker = root / "requests" / (_key(ref, at) + ".json")
+    if not marker.is_file() or marker.is_symlink():
+        return False
+    gate = root / "requests" / "submission.lock"
+    fd = os.open(gate, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        if record.get("issue") != ref or record.get("at") != at:
+            raise ValueError("invalid request journal")
+        observed = observe(ref, at, state_dir=root)["state"]
+        if observed not in ("requested", "launch_unconfirmed", "provisioning"):
+            if state == "provisioning":
+                raise Duplicate("request already settled or accepted")
+            return False
+        record["state"] = state
+        if code is not None:
+            record["failure_code"] = code
+        _write(marker, record)
+        return True
+    finally:
+        os.close(fd)
+
+
+def execute(ref: str, *, repo: str | None = None, at: str | None = None,
+            workspace_root: Path, allowed_repositories: tuple[str, ...] | None = None,
+            timeout_seconds: int = 1800, resolver=resolve, runner=subprocess.run,
+            state_dir: Path | None = None, runtime=runtime_context) -> dict:
+    """Execute a trusted issue and durably settle deterministic worker failures."""
+    marked = _request_transition(ref, at, state_dir, "provisioning")
+    try:
+        return _execute(ref, repo=repo, at=at, workspace_root=workspace_root,
+                        allowed_repositories=allowed_repositories, timeout_seconds=timeout_seconds,
+                        resolver=resolver, runner=runner, state_dir=state_dir, runtime=runtime)
+    except (ExecutionError, IssueRejected, Busy, Duplicate, OSError, ValueError) as exc:
+        if marked:
+            code = getattr(exc, "code", None)
+            if not isinstance(code, str) or not code.replace("_", "").isalnum():
+                code = "preacceptance_failed"
+            _request_transition(ref, at, state_dir, "preacceptance_failed", code)
+        raise

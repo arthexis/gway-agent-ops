@@ -87,6 +87,10 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Busy("another invocation is using this repository") from exc
+        # A cancelled or failed reservation must never become accepted later.
+        from .observation import observe
+        if observe(issue, at, state_dir=directory)["state"] in ("released", "preacceptance_failed"):
+            raise Duplicate("request already terminal")
         active = [row for row in unresolved(directory)
                   if (row[0], row[1]) != (issue, at)]
         if len(active) >= capacity():

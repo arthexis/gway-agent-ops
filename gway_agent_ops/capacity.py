@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .observation import observe
 
-TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
+TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released", "preacceptance_failed"})
 
 
 def capacity() -> int:

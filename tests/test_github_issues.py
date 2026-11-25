@@ -20,7 +20,7 @@ def payload(**overrides):
 
 def runner(body, code=0):
     def invoke(argv, **kwargs):
-        assert argv == ["gh", "api", f"repos/{REPO}/issues/19"]
+        assert argv == ["gh", "api", "--hostname", "github.com", f"repos/{REPO}/issues/19"]
         assert kwargs["timeout"] == 20
         assert "shell" not in kwargs
         assert "GH_TOKEN" not in kwargs["env"]
@@ -68,3 +68,11 @@ class GithubIssueTests(unittest.TestCase):
     def test_api_failure(self):
         with self.assertRaisesRegex(IssueRejected, "github_unavailable"):
             resolve(f"{REPO}#19", allowed_repositories=(REPO,), runner=runner({}, 1))
+
+    def test_repository_url_must_be_on_github_api_host(self):
+        for url in (f"https://evil.example/repos/{REPO}",
+                    f"https://api.github.com.evil.example/repos/{REPO}",
+                    f"http://api.github.com/repos/{REPO}",
+                    f"https://api.github.com/repos/{REPO}?redirect=1"):
+            with self.subTest(url=url), self.assertRaisesRegex(IssueRejected, "repository_mismatch"):
+                resolve(f"{REPO}#19", runner=runner(payload(repository_url=url)))

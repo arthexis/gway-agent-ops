@@ -64,7 +64,7 @@ def reconcile_pending(*, state_dir: Path | None = None,
     retired = []
     unresolved_pending = []
     for ref, at, state in unresolved(root):
-        if state not in ("requested", "launch_unconfirmed", "accepted"):
+        if state not in ("requested", "launch_unconfirmed", "provisioning", "accepted"):
             continue
         if state == "accepted":
             # The legacy direct CLI has no request marker and must use its
