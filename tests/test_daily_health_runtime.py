@@ -88,6 +88,7 @@ def test_sustained_cpu(samples,severity,monkeypatch):
 def test_health_notifications(tmp_path, monkeypatch):
     from gway_agent_ops import daily_health_notify as n
     monkeypatch.setattr(n.activity_feed,'enabled',lambda:True)
+    monkeypatch.setattr(n.activity_feed,'allowed_repositories',lambda:{'arthexis/gway-agent-ops'})
     monkeypatch.setattr(n.lcd_notification,'enabled',lambda:True)
     calls=[]
     report={'findings':[{'severity':'critical'}],'errors':[]}
@@ -167,3 +168,14 @@ def test_verified_installation(tmp_path):
     assert verified_installation(tmp_path)
     history.write_text(json.dumps({'schema':1,'verified':[]}))
     assert not verified_installation(tmp_path)
+
+
+@pytest.mark.parametrize('allowed', [set(), {'arthexis/gway-remote'}])
+def test_health_feed_denied(tmp_path, monkeypatch, allowed):
+    from gway_agent_ops import daily_health_notify as n
+    monkeypatch.setattr(n.activity_feed,'enabled',lambda:True)
+    monkeypatch.setattr(n.activity_feed,'allowed_repositories',lambda:allowed)
+    monkeypatch.setattr(n.lcd_notification,'enabled',lambda:False)
+    calls=[]
+    n.notify('2026-11-25',{'findings':[],'errors':[]},path=tmp_path/'private'/'db',runner=lambda argv,**kw:calls.append(argv))
+    assert not calls
