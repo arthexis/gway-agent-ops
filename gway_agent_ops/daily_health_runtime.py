@@ -148,15 +148,38 @@ def persist(local_date, report, *, path=None):
         ledger.db.execute("INSERT OR REPLACE INTO daily_health_baselines VALUES (?,?)", (local_date,json.dumps(report,sort_keys=True)))
         ledger.db.execute("DELETE FROM daily_health_baselines WHERE local_date < ?", (cutoff,))
 
-def run(claim, *, path=None, collector=collect_extended, publisher=None):
+def run(claim, *, path=None, collector=collect_extended, publisher=None, mcp_check=None):
     day = claim["local_date"]
     if publisher is None:
         publisher = lambda f,d: reconcile(f,d,path=path)
     try:
         report = collector()
+        from .mcp_recovery import assess
+        mcp = (mcp_check or assess)(day,path=path)
+        report['mcp_health'] = mcp
+        observed = mcp.get('after',mcp.get('repeat',mcp['before']))
+        for key,unverified in (('read',('observer_unavailable','unavailable','authorization')),('execute',('credential_unavailable','authorization','unverified','execution_unverified','client_error'))):
+            name='mcp_'+key+'_path_failed'
+            if observed[key] in unverified:
+                report['errors'].append('mcp_'+key+'_probe_unverified')
+            else:
+                value=int(observed[key]!='ok')
+                report['metrics'][name]=value
+                if value:
+                    report['findings'].append({'component':name,'severity':'warning','value':value})
+        if observed['anonymous']=='unexpected_access':
+            report['metrics']['mcp_anonymous_access']=1
+            report['findings'].append({'component':'mcp_anonymous_access','severity':'critical','value':1})
+        elif observed['anonymous']=='denied':
+            report['metrics']['mcp_anonymous_access']=0
+        if 'optional_failures' in observed:
+            value=observed['optional_failures']
+            report['metrics']['mcp_optional_provider_failures']=value
+            if value:
+                report['findings'].append({'component':'mcp_optional_provider_failures','severity':'warning','value':value})
         recovered = recovery_findings(day, report, path=path)
-        results = [publisher(f, day) for f in report["findings"] + recovered]
         persist(day, report, path=path)
+        results = [publisher(f, day) for f in report["findings"] + recovered]
     except Exception:
         store.finish(day, "failed", path=path)
         raise
