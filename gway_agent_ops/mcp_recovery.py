@@ -62,7 +62,13 @@ def invoke(action, fault=None):
 
 
 def blocking(a,b):
-    return all(r.get('anonymous')!='unexpected_access' and r.get('read') in READ_BLOCKING and r.get('execute') in EXEC_BLOCKING for r in (a,b)) and (a['read'],a['execute'])==(b['read'],b['execute'])
+    def qualifies(r):
+        return (r.get('alternate_routes')=='blocked' and type(r.get('route_sample_at')) is int
+                and r.get('anonymous')!='unexpected_access'
+                and (r.get('read') in READ_BLOCKING and r.get('execute') in EXEC_BLOCKING
+                     or r.get('read')=='ok' and r.get('anonymous')=='denied' and r.get('execute')=='exec_infra_failure')
+                and type(r.get('execute_sample_at')) is int)
+    return all(qualifies(r) for r in (a,b)) and a['execute']==b['execute'] and a.get('failure_stage')==b.get('failure_stage')
 
 
 def healthy(report):
@@ -108,14 +114,16 @@ def assess(day, *, path=None, probe=observe, runner=invoke, sleep=time.sleep, ad
         return result
     if not blocking(first,first):
         return result
-    sleep(135)
+    sleep(1050)
     second=probe()
     result['repeat']=second
     if healthy(second):
         claim(path,day,reset=True)
         result['decision']='transient_recovered'
         return result
-    if not blocking(first,second) or not isinstance(first.get("sample_at"),int) or not isinstance(second.get("sample_at"),int) or second["sample_at"]<=first["sample_at"]:
+    if not blocking(first,second) or second["execute_sample_at"]<=first["execute_sample_at"] or second["route_sample_at"]<=first["route_sample_at"]:
+        return result
+    if first.get('read') in READ_BLOCKING and second.get('read') in READ_BLOCKING and (type(first.get('sample_at')) is not int or type(second.get('sample_at')) is not int or second['sample_at']<=first['sample_at']):
         return result
     try:
         diagnosis=runner('diagnose')
