@@ -520,3 +520,22 @@ only after the approved code is deployed and definitions are explicitly
 resumed. Do not activate new recurring definitions on a production node
 without separate operator authorization. Restart/crash-safety tests and
 local CLI/MCP tests do not certify a live GitHub + Codex recurring run.
+
+### Review local AgentOps Codex sessions
+
+Run `python3 scripts/review_agent_sessions.py` (or add `--json`) to inventory
+unarchived local Codex sessions whose initial prompt identifies an AgentOps
+trusted issue. The read-only report compares issue states, local AgentOps
+history and current reservations. It does not archive or mutate sessions.
+The current Codex index schema and `agent`, `gh`, and GitHub access are
+required; the report marks unavailable evidence as unknown. Execution history
+is limited to 1,000 entries. A nearby invocation timestamp is only a possible
+match and does not establish thread identity or completion.
+
+Before archiving, inspect the exact Codex thread, its latest turn and
+unarchived descendants, the current issue and AgentOps reservations. Use a
+supported Codex archive interface, preserve history, and never interrupt
+active work. Closed issues and terminal AgentOps receipts do not alone establish
+that a thread or its administrative outcome is complete. The inventory covers
+only the local index and the recognized trusted-issue prompt, not other Codex
+homes, hosts, providers or prompt formats.
