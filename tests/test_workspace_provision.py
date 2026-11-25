@@ -55,7 +55,33 @@ class WorkspaceTests(unittest.TestCase):
                 provision(self.root, 'arthexis/example')
             self.assertNotIn('secret', str(caught.exception))
 
+    def test_git_ignores_ambient_git_configuration(self):
+        from gway_agent_ops.workspace import _git
+        with patch.dict(os.environ, {'GIT_CONFIG_COUNT': '1',
+                                     'GIT_CONFIG_KEY_0': 'url.evil.insteadOf',
+                                     'GIT_CONFIG_VALUE_0': 'https://github.com/'}), \
+             patch('gway_agent_ops.workspace.subprocess.run',
+                   return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
+            _git(['clone', '--', 'https://github.com/a/b.git', '/tmp/clone'])
+        args = run.call_args.args[0]
+        env = run.call_args.kwargs['env']
+        self.assertNotIn('GIT_CONFIG_COUNT', env)
+        self.assertEqual(env['GIT_CONFIG_GLOBAL'], os.devnull)
+        self.assertIn('http.followRedirects=false', args)
+        self.assertIn('credential.helper=!gh auth git-credential', args)
+
 class ReservationTests(unittest.TestCase):
+    def test_accepted_identity_is_duplicate_across_case_aliases(self):
+        from gway_agent_ops.dispatch import admission, Duplicate
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / 'state'
+            at = '2026-11-24T23:49:27Z'
+            with admission('arthexis/Melquisedec#3', at, state_dir=state):
+                pass
+            with self.assertRaises(Duplicate):
+                with admission('Arthexis/melquisedec#3', at, state_dir=state):
+                    pass
+
     def test_missing_workspace_records_terminal_without_acceptance(self):
         import json
         from gway_agent_ops.dispatch import timestamp

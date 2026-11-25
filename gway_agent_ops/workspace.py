@@ -52,9 +52,19 @@ def _origin_matches(value: str, repository: str) -> bool:
 
 
 def _git(args: list[str], *, cwd: Path | None = None, timeout: int = 120):
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1")
+    # Do not allow ambient Git configuration, URL rewrites, hooks or injected
+    # GIT_CONFIG_* values to change the destination or execute a helper. Use
+    # the existing GitHub CLI credential store explicitly for HTTPS only.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("GIT_")}
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1",
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_ALLOW_PROTOCOL="https")
     try:
-        result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args],
+        result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null",
+                                 "-c", "init.templateDir=/dev/null",
+                                 "-c", "http.followRedirects=false",
+                                 "-c", "credential.helper=",
+                                 "-c", "credential.helper=!gh auth git-credential", *args],
                                 cwd=cwd, env=env, capture_output=True, text=True,
                                 timeout=timeout, check=False)
     except (OSError, subprocess.TimeoutExpired):
@@ -124,6 +134,8 @@ def _validate(checkout: Path, repository: str) -> None:
     _directory(checkout)
     gitdir = checkout / ".git"
     _directory(gitdir)
-    origin = _git(["remote", "get-url", "origin"], cwd=checkout, timeout=10)
+    # Read the literal local URL: `remote get-url` applies insteadOf rewrites.
+    origin = _git(["config", "--local", "--no-includes", "--get", "remote.origin.url"],
+                  cwd=checkout, timeout=10)
     if not _origin_matches(origin, repository):
         raise WorkspaceError("workspace_origin_mismatch")
