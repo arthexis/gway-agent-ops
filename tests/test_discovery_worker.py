@@ -44,3 +44,31 @@ def test_listing_failure_preserves_existing_tasks(tmp_path):
         report = tick(ledger, listing=offline, resolver=valid)
         assert report["errors"] == ["discovery_unavailable"]
         assert ledger.get(ISSUE)["state"] == "requested"
+
+
+def test_search_failure_reconciles_independently(tmp_path):
+    from gway_agent_ops.github_issues import IssueRejected
+    with TaskLedger(tmp_path / "tasks.sqlite") as ledger:
+        for ref in (ISSUE, UNREGISTERED):
+            ledger.discover(ref)
+            ledger.decide(ref, "approve", actor="operator")
+        def offline():
+            raise OSError("offline")
+        def resolve(ref):
+            if ref == UNREGISTERED:
+                raise IssueRejected("github_unavailable")
+            return {"state": "closed", "labels": []}
+        result = tick(ledger, listing=offline, resolver=resolve)
+        assert result["reconciled"] == 1
+        assert result["errors"] == ["discovery_unavailable", f"reconcile_unavailable:{UNREGISTERED}"]
+        assert ledger.get(ISSUE)["state"] == "withdrawn"
+        assert ledger.get(UNREGISTERED)["state"] == "approved"
+
+
+def test_reconciliation_only(tmp_path):
+    from gway_agent_ops.discovery_worker import reconcile
+    with TaskLedger(tmp_path / "tasks.sqlite") as ledger:
+        ledger.discover(ISSUE)
+        result = reconcile(ledger, resolver=lambda ref: {"state": "open", "labels": []})
+        assert result == {"discovered": 0, "reconciled": 1, "errors": []}
+        assert ledger.get(ISSUE)["state"] == "withdrawn"

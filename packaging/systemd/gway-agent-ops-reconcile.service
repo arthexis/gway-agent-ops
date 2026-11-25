@@ -1,0 +1,9 @@
+[Unit]
+Description=AgentOps ledger reconciliation only (operator opt-in)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agent reconcile-tick --json
+TimeoutStartSec=120
+NoNewPrivileges=yes
+PrivateTmp=yes
