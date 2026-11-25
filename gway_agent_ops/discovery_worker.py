@@ -22,7 +22,7 @@ def tick(ledger: TaskLedger, *, listing=list_opted_in, resolver=None):
         refs = listing()
     except (OSError, ValueError, IssueRejected):
         report["errors"].append("discovery_unavailable")
-        return report
+        refs = []
     for ref in refs:
         try:
             previous = ledger.get(ref)
@@ -31,6 +31,14 @@ def tick(ledger: TaskLedger, *, listing=list_opted_in, resolver=None):
                 report["discovered"] += 1
         except (IssueRejected, ValueError):
             report["errors"].append(f"verification_failed:{ref}")
+    reconcile(ledger, resolver=resolver, report=report)
+    return report
+
+
+def reconcile(ledger, *, resolver=None, report=None):
+    """Verify existing entries only; never discover or dispatch."""
+    if report is None:
+        report = {"discovered": 0, "reconciled": 0, "errors": []}
     for task in ledger.list_tasks():
         if task["state"] not in ("requested", "approved"):
             continue
