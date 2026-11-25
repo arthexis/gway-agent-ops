@@ -606,3 +606,24 @@ clears the episode. Attempts retain sanitized before/after evidence. See GWay
 Remote's `docs/operations/mcp-health.md` for the disabled-by-default provisioning
 procedure and supported service-start/rollback recipe. No novel arbitrary code
 repair, credential mutation, or charging changes are authorized by that recipe.
+
+### Protected execution probe and independent recovery evidence
+
+Daily health consumes `/var/lib/gway-mcp-execution-health/status.json` from the
+root-managed purpose-exclusive probe helper, never a raw MCP token. Missing,
+stale or unauthorized evidence is unverified. Emergency repair requires an
+independent signed complete cloud route inventory sampled within five minutes:
+`/var/lib/gway-mcp-cloud-repair/status.json` and pinned root-owned
+`/etc/gway-remote/cloud-repair-monitor.pub` (Ed25519 PEM). Schema 1 includes
+`sample_at`, `source: independent_cloud_monitor`, `complete: true`, `routes`
+with watchtower_deployment, github_workflow and alternate_node_control states
+(available/blocked/unverified), and base64 `signature` over canonical sorted
+compact ASCII JSON without signature. These are the initially selected routes;
+the independent monitor must attest the inventory is complete. Available or
+unknown routes, invalid signature or missing key prevent repair. No signer or
+producer is installed by this PR. Require distinct execution and route samples;
+when both read paths are failed their samples must also advance. Read-healthy,
+typed execute failure qualifies only with all independent routes blocked and
+proven local fault. 17.5-minute sample separation fits the existing 30-minute
+budget. Cached post-repair failure is not restoration; later healthy evidence
+clears the episode. Recovery remains disabled pending controlled acceptance.
