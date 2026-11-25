@@ -34,3 +34,34 @@ jobs:
           bash -n scripts/gway/operator-log.sh
           sh -n bin/agent-alert
           bin/agent-alert --help
+
+  publication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install 'ansible-core==2.16.*'
+      - name: Verify byte-exact rollback and pin preservation
+        run: |
+          set -eu
+          fixture=$(mktemp -d)
+          sha=$(git rev-parse HEAD)
+          mkdir -p "$fixture/releases/$sha/bin" "$fixture/registry"
+          printf '#!/bin/sh\nexit 0\n' > "$fixture/releases/$sha/bin/agent-mcp"
+          chmod 755 "$fixture/releases/$sha/bin/agent-mcp"
+          python -c 'import json,sys; print(json.dumps({"source_id":"agentops","revision":"a"*40,"deployment":{"schema":1,"checkout":"/home/arthe/.local/share/gway-agent-ops/checkouts/"+"b"*40,"runner":"/home/arthe/.local/share/gway-agent-ops/checkouts/"+"b"*40+"/broker-deploy.sh","revision":"b"*40}}))' > "$fixture/previous.json"
+          sudo -n install -o root -g root -m 0644 "$fixture/previous.json" "$fixture/registry/agentops.json"
+          vars="agentops_revision=$sha agentops_release_root=$fixture/releases agentops_manifest_dir=$fixture/registry agentops_manifest_path=$fixture/registry/agentops.json"
+          ansible_bin=$(command -v ansible-playbook)
+          if sudo -n "$ansible_bin" -i localhost, -c local ansible/publish-mcp.yml -e "$vars agentops_test_inject_verify_failure=true" > "$fixture/fault.log" 2>&1; then
+            exit 1
+          fi
+          grep -q 'previous manifest restored' "$fixture/fault.log"
+          cmp "$fixture/previous.json" "$fixture/registry/agentops.json"
+          sudo -n "$ansible_bin" -i localhost, -c local ansible/publish-mcp.yml -e "$vars"
+          python -c 'import json,sys; assert json.load(open(sys.argv[1]))["deployment"] == json.load(open(sys.argv[2]))["deployment"]' "$fixture/previous.json" "$fixture/registry/agentops.json"
+          cp "$fixture/registry/agentops.json" "$fixture/published.json"
+          sudo -n "$ansible_bin" -i localhost, -c local ansible/publish-mcp.yml -e "$vars"
+          cmp "$fixture/published.json" "$fixture/registry/agentops.json"
