@@ -25,6 +25,17 @@
               - agentops_deployment_revision is match('^[a-f0-9]{40}$')
               - agentops_deployment_checkout == '/home/arthe/.local/share/gway-agent-ops/checkouts/' ~ agentops_deployment_revision
         - ansible.builtin.stat:
+            path: "{{ agentops_deployment_checkout }}"
+            follow: false
+          register: broker_checkout
+        - ansible.builtin.assert:
+            that:
+              - broker_checkout.stat.isdir | default(false)
+              - not (broker_checkout.stat.islnk | default(false))
+              - broker_checkout.stat.pw_name == 'arthe'
+              - not (broker_checkout.stat.wgrp | default(true))
+              - not (broker_checkout.stat.woth | default(true))
+        - ansible.builtin.stat:
             path: "{{ agentops_deployment_checkout }}/broker-deploy.sh"
             follow: false
           register: broker_runner
@@ -33,6 +44,9 @@
               - broker_runner.stat.isreg | default(false)
               - not (broker_runner.stat.islnk | default(false))
               - broker_runner.stat.executable | default(false)
+              - broker_runner.stat.pw_name == 'arthe'
+              - not (broker_runner.stat.wgrp | default(true))
+              - not (broker_runner.stat.woth | default(true))
     - name: Verify installed MCP binary
       ansible.builtin.stat:
         path: "{{ agentops_release_root }}/{{ agentops_revision }}/bin/agent-mcp"
