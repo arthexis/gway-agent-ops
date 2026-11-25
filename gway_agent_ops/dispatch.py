@@ -87,8 +87,12 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Busy("another invocation is using this repository") from exc
+        # A cancelled or failed reservation must never become accepted later.
+        from .observation import observe
+        if observe(issue, at, state_dir=directory)["state"] in ("released", "preacceptance_failed"):
+            raise Duplicate("request already terminal")
         active = [row for row in unresolved(directory)
-                  if (row[0], row[1]) != (issue, at)]
+                  if (row[0].casefold(), row[1]) != (issue.casefold(), at)]
         if len(active) >= capacity():
             raise Busy("node execution capacity is full")
         if any(row[0].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()
@@ -107,7 +111,7 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                 terminal = {"finished", "codex_failed", "interrupted", "released"}
                 for line in handle:
                     row = json.loads(line)
-                    if row["issue"] == issue and row["at"] == at:
+                    if row["issue"].casefold() == issue.casefold() and row["at"] == at:
                         raise Duplicate("this issue and timestamp were already accepted")
                     if (observe(row["issue"], row["at"], state_dir=directory)["state"]
                             not in terminal

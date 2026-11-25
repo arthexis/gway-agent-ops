@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+from urllib.parse import urlsplit
 
 from .cli import parse_issue_ref
 
@@ -31,7 +32,7 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
         raise IssueRejected("invalid_issue_ref")
     try:
         result = runner(
-            ["gh", "api", f"repos/{repository}/issues/{number}"],
+            ["gh", "api", "--hostname", "github.com", f"repos/{repository}/issues/{number}"],
             capture_output=True, text=True, timeout=20,
             env={k: v for k, v in os.environ.items() if k not in ("GITHUB_TOKEN", "GH_TOKEN")},
             check=False,
@@ -50,7 +51,10 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
             raise IssueRejected("creator_not_allowed")
         if payload["number"] != number:
             raise IssueRejected("issue_mismatch")
-        if payload["repository_url"].rstrip("/").endswith(f"/repos/{repository}") is False:
+        repository_url = urlsplit(payload["repository_url"])
+        if (repository_url.scheme != "https" or repository_url.netloc != "api.github.com"
+                or repository_url.path.rstrip("/").casefold() != f"/repos/{repository}".casefold()
+                or repository_url.query or repository_url.fragment):
             raise IssueRejected("repository_mismatch")
         if (not isinstance(payload["title"], str) or not isinstance(payload.get("body"), (str, type(None)))
                 or type(payload.get("comments")) is not int or payload["comments"] < 0):

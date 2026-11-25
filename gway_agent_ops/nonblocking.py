@@ -22,7 +22,7 @@ from .observation import observe
 from .runtime import _same_user_runtime_dir, systemd_user_environment
 
 
-_TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released"})
+_TERMINAL = frozenset({"finished", "codex_failed", "interrupted", "released", "preacceptance_failed"})
 
 def _launch_prerequisites() -> str:
     """Validate stable launch inputs *before* a durable request is recorded.
@@ -229,7 +229,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
         observed = observe(ref, at, state_dir=root)["state"]
         if observed in _TERMINAL:
             return {"issue": ref, "at": at, "state": "already_terminal"}
-        if pending_only and observed not in ("requested", "launch_unconfirmed"):
+        if pending_only and observed not in ("requested", "launch_unconfirmed", "provisioning"):
             raise ValueError("reservation_already_accepted")
         from .capacity import locked, repo_lock
         if locked(root / "execution.lock") or locked(repo_lock(root, ref)):
@@ -247,7 +247,7 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             observed = observe(ref, at, state_dir=root)["state"]
             if observed in _TERMINAL:
                 return {"issue": ref, "at": at, "state": "already_terminal"}
-            if pending_only and observed not in ("requested", "launch_unconfirmed"):
+            if pending_only and observed not in ("requested", "launch_unconfirmed", "provisioning"):
                 raise ValueError("reservation_already_accepted")
             # Validate the acceptance journal while holding both locks.
             # Release is an explicit operator reconciliation of Codex, not

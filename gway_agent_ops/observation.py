@@ -114,9 +114,11 @@ def _pending_request(root: Path, ref: str, at: str) -> dict:
     if request.get("issue") != ref or request.get("at") != at:
         raise ValueError("invalid request journal")
     state = request.get("state", "requested")
-    if state not in ("requested", "launch_unconfirmed"):
+    if state not in ("requested", "launch_unconfirmed", "provisioning", "preacceptance_failed"):
         raise ValueError("invalid request state")
-    return {"issue": ref, "at": at, "state": state, **_provenance(root, ref, at)}
+    return {"issue": ref, "at": at, "state": state,
+            **({"failure_code": request.get("failure_code"), "request_terminal": True}
+               if state == "preacceptance_failed" else {}), **_provenance(root, ref, at)}
 
 
 def _provenance(root: Path, ref: str, at: str) -> dict:

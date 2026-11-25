@@ -18,7 +18,9 @@ class ExecutionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.checkout = self.root / "arthexis" / "example"
         self.checkout.mkdir(parents=True)
-        (self.checkout / ".git").mkdir()
+        subprocess.run(["git", "init", "-q", str(self.checkout)], check=True)
+        subprocess.run(["git", "-C", str(self.checkout), "remote", "add", "origin",
+                        "https://github.com/arthexis/example.git"], check=True)
         self.state = self.root / "state"
         self.issue = {"repository": "arthexis/example", "number": 19,
                       "title": "Fix an issue", "body": "Body", "comments": 6, "labels": ["gway-001"],
@@ -184,7 +186,8 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(status(state_dir=self.state)["active_count"], 1)
 
     def test_no_checkout_prevents_dispatch(self):
-        (self.checkout / ".git").rmdir()
+        import shutil
+        shutil.rmtree(self.checkout / ".git")
         with self.assertRaisesRegex(ExecutionError, "workspace_unavailable"):
             self.call()
         self.assertFalse(self.state.exists())
