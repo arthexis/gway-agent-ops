@@ -91,7 +91,7 @@ def probe_exec(token, transport=request, sleep=None):
         result=call(token,'node_result',{'request_id':rid},transport)
         if result.get('request_id')!=rid or result.get('node')!='gway-001':
             raise Failure('execution_identity')
-        if result.get('status')=='succeeded' and result.get('exit_code')==0 and result.get('stdout')==rid:
+        if result.get('schema')==1 and result.get('status')=='succeeded' and result.get('exit_code')==0 and result.get('stdout')==rid and result.get('stderr')=='' and result.get('truncated') is False and result.get('cursor') is None:
             return True
         if result.get('status') not in ('dispatched','running','queued'):
             raise Failure('execution_failed')

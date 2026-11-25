@@ -20,7 +20,7 @@ def test_exec_nonce_and_receipt():
         if params['name']=='node_exec':
             assert args['command']=='printf %s '+rid and len(rid)==32
             return receipt(dict(request_id=rid,node='gway-001',status='dispatched'))
-        return receipt(dict(request_id=rid,node='gway-001',status='succeeded',exit_code=0,stdout=rid))
+        return receipt(dict(request_id=rid,node='gway-001',schema=1,status='succeeded',exit_code=0,stdout=rid,stderr='',truncated=False,cursor=None))
     assert h.probe_exec('private',transport,sleep=lambda _:None)
     assert [x['name'] for x in calls]==['node_exec','node_result']
 

@@ -42,7 +42,7 @@ def invoke(action, fault=None):
         raise ValueError('recovery_runner_mismatch')
     if action not in ('diagnose','repair') or (action=='repair' and fault not in FAULTS):
         raise ValueError('invalid_recovery_action')
-    argv=[str(RUNNER),action,'--revision',policy['revision']]
+    argv=['/usr/bin/python3','-I',str(RUNNER),action,'--revision',policy['revision']]
     if fault:
         argv+=['--fault',fault]
     # Runner is required to supervise its own children and rollback within this budget.
