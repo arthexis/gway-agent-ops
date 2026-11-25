@@ -14,6 +14,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
 import uuid
 
 SHA = re.compile(r"[a-f0-9]{40}")
@@ -164,6 +166,43 @@ def _install_scheduler_units(source, home):
             temp.unlink(missing_ok=True)
 
 
+@contextmanager
+def _build_source(source, sha, root):
+    """Export the approved commit into a disposable private build directory.
+
+    PEP 517 backends can write build/ and metadata alongside their inputs.
+    Neither those writes nor untracked files from an earlier install belong
+    in an immutable deployment checkout or in the approved package.
+    """
+    with tempfile.TemporaryDirectory(prefix=".build-", dir=root) as temporary:
+        staging = Path(temporary)
+        archive = staging / "source.tar"
+        tree = staging / "source"
+        tree.mkdir(mode=0o700)
+        subprocess.run(["git", "-C", str(source), "archive", "--format=tar",
+                        "--output", str(archive), sha], check=True, timeout=60)
+        with tarfile.open(archive, "r:") as stream:
+            # Git archives contain only committed files. Extract regular files
+            # and directories explicitly; reject links and traversal on every
+            # supported Python version (including older 3.11 builds).
+            for member in stream:
+                relative = Path(member.name)
+                if (relative.is_absolute() or not relative.parts
+                        or ".." in relative.parts):
+                    raise ValueError("unsafe build archive path")
+                target = tree / relative
+                if member.isdir():
+                    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+                elif member.isfile():
+                    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    with stream.extractfile(member) as src, target.open("xb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    target.chmod(0o700 if member.mode & 0o111 else 0o600)
+                else:
+                    raise ValueError("unsupported build archive entry")
+        yield tree
+
+
 def install(source, *, expected_sha=None, home=None, run=subprocess.run):
     source = Path(source).resolve(strict=True)
     home = Path(home) if home is not None else Path.home()
@@ -194,8 +233,9 @@ def install(source, *, expected_sha=None, home=None, run=subprocess.run):
             try:
                 run([sys.executable, "-m", "venv", str(destination)], check=True, timeout=90)
                 _directory(destination)
-                run([str(destination / "bin/pip"), "install", "--no-deps", str(source)],
-                    check=True, timeout=300)
+                with _build_source(source, sha, root) as build_source:
+                    run([str(destination / "bin/pip"), "install", "--no-deps", str(build_source)],
+                        check=True, timeout=300, cwd=build_source)
             except Exception:
                 # A failed build is left for owner-controlled recovery, not recursive deletion.
                 raise

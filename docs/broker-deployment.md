@@ -18,3 +18,10 @@ mutable main in the runner. Invalid or dirty checkouts fail closed.
 Publication verification restores the previous manifest on failure. Existing
 application rollback remains the responsibility of the provider installer.
 Do not remove a checkout referenced by the manifest or an active deployment.
+
+The installer exports the approved Git commit into a private, temporary build
+directory under the owner-managed deployment lock before invoking pip. Build
+backend output is discarded with that directory on success or failure, leaving
+the pinned checkout clean for repeated broker deployment. Untracked files are
+not included in the build. Retain earlier checkout pins until no longer
+referenced by a deployment receipt; refresh the declaration explicitly.

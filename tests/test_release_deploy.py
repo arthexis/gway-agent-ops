@@ -41,6 +41,68 @@ class CanonicalDeployTests(unittest.TestCase):
         with patch.object(deployment.subprocess, "check_output", return_value=self.sha+"\n"):
             return deployment.install(self.source, expected_sha=self.sha, home=self.home, run=run)
 
+    def _committed_source(self):
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.source), *args], text=True).strip()
+        git("init", "-q")
+        git("config", "user.name", "Isolated fixture")
+        git("config", "user.email", "fixture@example.invalid")
+        (self.source / "pyproject.toml").write_text("[build-system]\n")
+        git("add", ".")
+        git("commit", "-qm", "Approved source")
+        return git, git("rev-parse", "HEAD")
+
+    def test_new_release_and_repeat_keep_pinned_checkout_clean(self):
+        git, sha = self._committed_source()
+        builds = []
+        destination = self.releases / sha
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["-m", "venv"]:
+                (destination / "bin").mkdir(parents=True)
+            elif argv[0] == str(destination / "bin/pip"):
+                staged = Path(argv[-1])
+                builds.append(staged)
+                self.assertNotEqual(staged, self.source)
+                self.assertEqual(kwargs["cwd"], staged)
+                self.assertEqual((staged / "pyproject.toml").read_bytes(),
+                                 (self.source / "pyproject.toml").read_bytes())
+                self.assertFalse((staged / ".git").exists())
+                (staged / "build").mkdir()
+                (staged / "build/generated.py").write_text("build side effect")
+                exe = destination / "bin/agent"
+                exe.write_text("#!/bin/sh\nexit 0\n")
+                exe.chmod(0o755)
+            return subprocess.CompletedProcess(argv, 0)
+
+        for _ in range(2):
+            result = deployment.install(self.source, expected_sha=sha, home=self.home, run=run)
+            self.assertEqual(result["installed_sha"], sha)
+            self.assertEqual(git("status", "--porcelain", "--untracked-files=all"), "")
+            self.assertEqual(self.entry.resolve(), destination / "bin/agent")
+            self.assertFalse(list(self.root.glob(".build-*")))
+        self.assertEqual(len(builds), 1)
+        self.assertFalse(builds[0].exists())
+
+    def test_failed_build_cleans_staging_not_source_or_previous_release(self):
+        git, sha = self._committed_source()
+        destination = self.releases / sha
+
+        def run(argv, **kwargs):
+            if argv[1:3] == ["-m", "venv"]:
+                (destination / "bin").mkdir(parents=True)
+            elif argv[0] == str(destination / "bin/pip"):
+                staged = Path(argv[-1])
+                (staged / "build").mkdir()
+                raise subprocess.CalledProcessError(1, argv)
+            return subprocess.CompletedProcess(argv, 0)
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            deployment.install(self.source, expected_sha=sha, home=self.home, run=run)
+        self.assertEqual(git("status", "--porcelain", "--untracked-files=all"), "")
+        self.assertFalse(list(self.root.glob(".build-*")))
+        self.assertEqual(self.entry.resolve(), self.releases / self.old_sha / "bin/agent")
+
     def test_success_creates_current_previous_and_history_without_deleting(self):
         # Release directories already exist, so no real venv or pip is invoked.
         self.install()
