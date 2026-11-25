@@ -34,7 +34,7 @@ def status(*, state_dir: Path | None = None) -> dict:
         state = "uncertain"
     elif repo_busy:
         state = "running"
-    elif all(row[2] == "requested" for row in active):
+    elif all(row[2] in ("requested", "provisioning") for row in active):
         state = "reserved"
     else:
         state = "uncertain"

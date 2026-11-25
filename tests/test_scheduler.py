@@ -380,3 +380,14 @@ def test_veto_committed_before_submission_fails_closed(ledger):
         ledger_path=ledger, now=NOW + timedelta(hours=2), resolver=trusted,
         submitter=lambda *_a, **_k: pytest.fail("revoked task was dispatched"))
     assert result["results"][0]["state"] == "blocked"
+
+
+@pytest.mark.parametrize("execution_state,terminal", [("provisioning", False), ("preacceptance_failed", True)])
+def test_workspace_provisioning_observation(ledger, execution_state, terminal):
+    record = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=2),
+                   resolver=trusted, submitter=lambda *_a, **_k: {"state": "requested"})
+    result = scheduler.inspect(record["schedule_id"], ledger_path=ledger,
+                               observer=lambda *_a: {"state": execution_state})
+    assert result["execution_state"] == execution_state
+    assert result["execution_terminal"] is terminal

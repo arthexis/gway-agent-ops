@@ -376,3 +376,16 @@ def test_recurring_definition_is_idempotent_and_activation_explicit(path):
     assert recurring_store.transition(a["id"], "cancel", path=path)["state"] == "cancelled"
     with pytest.raises(ValueError, match="recurring_cancelled"):
         recurring_store.transition(a["id"], "resume", path=path)
+
+
+def test_workspace_failure_pauses_recurring_without_retry(path):
+    approve(path)
+    d = fixed(path)
+    assert run(path)["processed"] == 1
+    assert run(path, now=NOW + timedelta(minutes=2),
+               observer=lambda *_a: {"state": "preacceptance_failed"},
+               submitter=lambda *_a, **_k: pytest.fail("unexpected retry"))["processed"] == 0
+    row = state(path, d["id"])
+    assert row["state"] == "paused"
+    assert row["last_invocation_at"] is None
+    assert row["last_error"] == "execution_preacceptance_failed"

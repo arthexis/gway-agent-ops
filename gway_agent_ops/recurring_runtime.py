@@ -28,7 +28,7 @@ MAX_DISCOVERY_ITEMS = 300
 MAX_DISPATCH = 2
 MAX_PAGES = 3
 BUSY_DELAY = timedelta(minutes=2)
-TERMINAL = {"finished", "codex_failed", "interrupted", "released"}
+TERMINAL = {"finished", "codex_failed", "interrupted", "released", "preacceptance_failed"}
 
 
 def _policy(definition):
