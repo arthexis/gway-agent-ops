@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .dispatch import ISSUE
 
@@ -17,6 +18,49 @@ MIN_INTERVAL = timedelta(minutes=15)
 MAX_INTERVAL = timedelta(days=30)
 MAX_PREFIX = 128
 MAX_REGEX = 128
+
+
+@dataclass(frozen=True)
+class DailyCalendarPolicy:
+    """Calculate daily wall-clock slots without replaying missed dates.
+
+    Ambiguous wall times use the first occurrence; nonexistent wall times are
+    skipped.  The returned instant is always UTC.  This class does not claim
+    or dispatch work: durable local-date deduplication belongs in the ledger.
+    """
+
+    hour: int
+    minute: int
+    timezone_name: str
+
+    def __post_init__(self):
+        if (type(self.hour) is not int or not 0 <= self.hour <= 23 or
+                type(self.minute) is not int or not 0 <= self.minute <= 59):
+            raise ValueError("invalid_calendar_time")
+        if type(self.timezone_name) is not str or not self.timezone_name:
+            raise ValueError("invalid_calendar_timezone")
+        try:
+            ZoneInfo(self.timezone_name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("invalid_calendar_timezone") from exc
+
+    def next_due(self, *, now: datetime) -> datetime:
+        if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("timezone_required")
+        zone = ZoneInfo(self.timezone_name)
+        current = now.astimezone(timezone.utc)
+        day = current.astimezone(zone).date()
+        # A civil-time gap can remove a slot, but cannot remove an unbounded
+        # number of consecutive dates. Fail closed if timezone data is unusual.
+        for offset in range(370):
+            local = datetime.combine(day + timedelta(days=offset),
+                                     time(self.hour, self.minute), zone)
+            slot = local.astimezone(timezone.utc)
+            if slot.astimezone(zone).replace(tzinfo=None) != local.replace(tzinfo=None):
+                continue
+            if slot > current:
+                return slot
+        raise ValueError("calendar_slot_unavailable")
 
 
 @dataclass(frozen=True)

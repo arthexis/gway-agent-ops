@@ -1,6 +1,7 @@
 """Single-attempt submission and durable release semantics."""
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -166,7 +167,7 @@ class NonblockingTests(unittest.TestCase):
             workspace = Path(temp)
             os.chmod(workspace, 0o700)
             env = {"GWAY_AGENT_WORKSPACE_ROOT": str(workspace), "XDG_RUNTIME_DIR": "/run/user/1000"}
-            with patch.dict(os.environ, env), patch("gway_agent_ops.nonblocking.shutil.which",
+            with patch.dict(os.environ, env), patch("gway_agent_ops.nonblocking.sys.prefix", sys.base_prefix), patch("gway_agent_ops.nonblocking.shutil.which",
                     side_effect=lambda name: "/bin/true"), patch(
                     "gway_agent_ops.nonblocking.Path.is_file", return_value=True), patch(
                     "gway_agent_ops.nonblocking._same_user_runtime_dir",

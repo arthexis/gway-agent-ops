@@ -83,6 +83,10 @@ TOOLS = (
 TOOLS = tuple({**tool, "annotations": {"readOnlyHint": tool["name"] not in (
     "submit", "reservation_cancel", "schedule", "schedule_cancel", "recurring_create",
     "recurring_pause", "recurring_resume", "recurring_cancel")}} for tool in TOOLS)
+TOOLS += tuple({"name": "daily_health_"+op,
+    "description": "Daily health "+op+("; requires gway:execute" if op != "status" else "; read-only"),
+    "inputSchema": {"type":"object","properties":{},"additionalProperties":False},
+    "annotations":{"readOnlyHint":op == "status"}} for op in ("create","status","pause","resume","cancel"))
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
@@ -123,6 +127,13 @@ def call_tool(name, args):
         if name == "scheduled_get":
             return scheduler.inspect(args["schedule_id"])
         return scheduler.cancel(args["schedule_id"])
+    if name.startswith("daily_health_"):
+        import socket
+        from . import daily_health_store as daily
+        op = name.removeprefix("daily_health_")
+        if op != "status" and socket.gethostname() != "gway-001":
+            raise ValueError("wrong_node")
+        return daily.inspect() if op == "status" else daily.create() if op == "create" else daily.transition(op)
     if name.startswith("recurring_"):
         from . import recurring_store
         if name == "recurring_create":

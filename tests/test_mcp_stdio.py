@@ -13,9 +13,11 @@ class McpStdioTests(unittest.TestCase):
         self.assertEqual(names, {"issues", "status", "preview", "observe", "report", "submit",
                                  "reservation_cancel", "schedule", "scheduled_list", "scheduled_get", "schedule_cancel",
                                  "recurring_create", "recurring_list", "recurring_get",
-                                 "recurring_pause", "recurring_resume", "recurring_cancel"})
+                                 "recurring_pause", "recurring_resume", "recurring_cancel",
+                                 "daily_health_create", "daily_health_status", "daily_health_pause", "daily_health_resume", "daily_health_cancel"})
         writes = ("submit", "reservation_cancel", "schedule", "schedule_cancel", "recurring_create",
-                  "recurring_pause", "recurring_resume", "recurring_cancel")
+                  "recurring_pause", "recurring_resume", "recurring_cancel",
+                  "daily_health_create", "daily_health_pause", "daily_health_resume", "daily_health_cancel")
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] == (tool["name"] not in writes)
                             for tool in response["result"]["tools"]))
 

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import subprocess
 from .contracts import envelope, json_line, status_data
 from . import __version__
 from .adopt import inspect, adopt as adopt_config
@@ -134,6 +135,8 @@ def build_parser():
         action = sub.add_parser("recurring-" + operation, help=operation + " an existing definition")
         action.add_argument("definition_id")
         action.add_argument("--json", action="store_true")
+    for op in ("create", "status", "pause", "resume", "cancel"):
+        sub.add_parser("daily-health-"+op).add_argument("--json", action="store_true")
     return parser
 
 
@@ -172,10 +175,17 @@ def main(argv=None):
                 data = scheduler.cancel(args.schedule_id)
             else:
                 data = scheduler.tick()
+                from .daily_health_runtime import tick as daily_tick
                 from .recurring_runtime import tick as recurring_tick
                 recurring = recurring_tick()
                 if recurring["processed"] or recurring.get("deferred"):
                     data["recurring"] = recurring
+                try:
+                    daily = daily_tick()
+                    if daily:
+                        data["daily_health"] = daily
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
+                    data["daily_health_error"] = "daily_health_tick_failed"
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             result, code = envelope(args.command, "error", error={
@@ -183,6 +193,19 @@ def main(argv=None):
                 "message": "Schedule operation failed or admission was denied"}), 1
         print(json_line(result) if args.json else
               (str(data) if code == 0 else "Schedule unavailable"))
+        return code
+    if args.command.startswith("daily-health-"):
+        from . import daily_health_store as daily
+        import socket
+        op = args.command.removeprefix("daily-health-")
+        try:
+            if op != "status" and socket.gethostname() != "gway-001":
+                raise ValueError("wrong_node")
+            data = daily.inspect() if op == "status" else daily.create() if op == "create" else daily.transition(op)
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError):
+            result, code = envelope(args.command, "error", error={"code":"daily_health_unavailable","message":"Daily health operation unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
         return code
     if args.command in ("schedule-recurring", "recurring-list", "recurring-show",
                         "recurring-pause", "recurring-resume", "recurring-cancel"):
