@@ -6,6 +6,7 @@
   gather_facts: false
   vars:
     agentops_release_root: /home/arthe/.local/share/gway-agent-ops/releases
+    agentops_manifest_dir: /etc/gway-mcp-providers
     agentops_manifest_path: /etc/gway-mcp-providers/agentops.json
   tasks:
     - name: Require immutable revision
@@ -15,6 +16,23 @@
           - agentops_revision is match('^[a-f0-9]{40}$')
         fail_msg: Invalid AgentOps release SHA
 
+    - name: Validate optional broker checkout and runner
+      when: agentops_deployment_checkout is defined
+      block:
+        - ansible.builtin.assert:
+            that:
+              - agentops_deployment_revision is defined
+              - agentops_deployment_revision is match('^[a-f0-9]{40}$')
+              - agentops_deployment_checkout == '/home/arthe/.local/share/gway-agent-ops/checkouts/' ~ agentops_deployment_revision
+        - ansible.builtin.stat:
+            path: "{{ agentops_deployment_checkout }}/broker-deploy.sh"
+            follow: false
+          register: broker_runner
+        - ansible.builtin.assert:
+            that:
+              - broker_runner.stat.isreg | default(false)
+              - not (broker_runner.stat.islnk | default(false))
+              - broker_runner.stat.executable | default(false)
     - name: Verify installed MCP binary
       ansible.builtin.stat:
         path: "{{ agentops_release_root }}/{{ agentops_revision }}/bin/agent-mcp"
@@ -29,10 +47,91 @@
           - agentops_binary.stat.executable
           - not agentops_binary.stat.islnk
 
-    - name: Publish root-owned provider manifest atomically
-      ansible.builtin.copy:
-        dest: "{{ agentops_manifest_path }}"
+    - name: Inspect existing provider registry without following symlinks
+      ansible.builtin.stat:
+        path: "{{ agentops_manifest_dir }}"
+        follow: false
+      register: registry
+    - name: Reject symlinked or non-directory registry
+      ansible.builtin.assert:
+        that:
+          - not (registry.stat.islnk | default(false))
+          - not (registry.stat.exists | default(false)) or (registry.stat.isdir | default(false))
+    - name: Ensure root-owned provider registry exists
+      ansible.builtin.file:
+        path: "{{ agentops_manifest_dir }}"
+        state: directory
         owner: root
         group: root
-        mode: '0644'
-        content: "{{ {'source_id': 'agentops', 'revision': agentops_revision, 'executable': agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp', 'argv': [agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp']} | to_json }}\n"
+        mode: '0755'
+    - name: Inspect existing manifest without following symlinks
+      ansible.builtin.stat:
+        path: "{{ agentops_manifest_path }}"
+        follow: false
+      register: existing_manifest
+    - name: Reject symlinked or nonregular manifest
+      ansible.builtin.assert:
+        that:
+          - not (existing_manifest.stat.islnk | default(false))
+          - not (existing_manifest.stat.exists | default(false)) or (existing_manifest.stat.isreg | default(false))
+    - name: Snapshot existing manifest for rollback
+      ansible.builtin.slurp:
+        src: "{{ agentops_manifest_path }}"
+      register: previous_manifest
+      when: existing_manifest.stat.exists | default(false)
+    - name: Require trusted existing manifest
+      ansible.builtin.assert:
+        that:
+          - existing_manifest.stat.uid == 0
+          - existing_manifest.stat.mode == '0644'
+      when: existing_manifest.stat.exists | default(false)
+    - name: Preserve existing broker pin unless explicitly refreshed
+      ansible.builtin.set_fact:
+        broker_declaration: "{{ (previous_manifest.content | b64decode | from_json).get('deployment', {}) if existing_manifest.stat.exists | default(false) else {} }}"
+    - name: Bind explicitly authorized target
+      ansible.builtin.set_fact:
+        broker_declaration: "{{ {'schema': 1, 'checkout': agentops_deployment_checkout, 'runner': agentops_deployment_checkout ~ '/broker-deploy.sh', 'revision': agentops_deployment_revision} }}"
+      when: agentops_deployment_checkout is defined
+    - name: Publish and verify pinned manifest, restoring prior state on failure
+      block:
+        - name: Publish pinned manifest atomically and idempotently
+          ansible.builtin.copy:
+            dest: "{{ agentops_manifest_path }}"
+            owner: root
+            group: root
+            mode: '0644'
+            content: "{{ {'source_id': 'agentops', 'revision': agentops_revision, 'executable': agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp', 'argv': [agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp']} | combine({'deployment': broker_declaration} if broker_declaration else {}) | to_json }}\n"
+
+        - name: Read back published manifest
+          ansible.builtin.slurp:
+            src: "{{ agentops_manifest_path }}"
+          register: published_manifest
+        - name: Inject offline publication verification failure when explicitly requested
+          ansible.builtin.assert:
+            that:
+              - not (agentops_test_inject_verify_failure | default(false) | bool)
+            fail_msg: Offline manifest verification fault injection
+        - name: Verify exact pinned manifest revision and executable
+          ansible.builtin.assert:
+            that:
+              - (published_manifest.content | b64decode | from_json).revision == agentops_revision
+              - (published_manifest.content | b64decode | from_json).executable == agentops_release_root ~ '/' ~ agentops_revision ~ '/bin/agent-mcp'
+              - (published_manifest.content | b64decode | from_json).source_id == 'agentops'
+              - (published_manifest.content | b64decode | from_json).get('deployment', {}) == broker_declaration
+      rescue:
+        - name: Restore previous manifest atomically
+          ansible.builtin.copy:
+            dest: "{{ agentops_manifest_path }}"
+            owner: root
+            group: root
+            mode: '0644'
+            content: "{{ previous_manifest.content | b64decode }}"
+          when: existing_manifest.stat.exists | default(false)
+        - name: Remove new manifest if no previous state existed
+          ansible.builtin.file:
+            path: "{{ agentops_manifest_path }}"
+            state: absent
+          when: not (existing_manifest.stat.exists | default(false))
+        - name: Fail closed after rollback
+          ansible.builtin.fail:
+            msg: AgentOps MCP publication failed; previous manifest restored
