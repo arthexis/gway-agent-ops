@@ -104,3 +104,66 @@ def test_semantic_candidate(tmp_path):
     api.rows=[{'number':1,'title':'gway-001 disk used capacity','body':'existing','state':'open'}]
     assert rt.reconcile(F,'2026-11-25',api=api,path=tmp_path/'private'/'db')['action']=='updated'
     assert len(api.rows)==1
+
+
+def test_semantic_mapping_survives_rename(tmp_path):
+    api=Fake()
+    path=tmp_path/'private'/'db'
+    api.rows=[{'number':1,'title':'gway-001 disk used capacity','body':'existing','state':'open'}]
+    rt.reconcile(F,'2026-11-25',api=api,path=path)
+    api.rows[0]['title']='Renamed incident'
+    assert rt.reconcile(F,'2026-11-26',api=api,path=path)['action']=='updated'
+    assert len(api.rows)==1
+
+
+def test_recovery_requires_measurement(tmp_path):
+    path=tmp_path/'private'/'db'
+    rt.persist('2026-11-25',{'findings':[F],'metrics':{'disk_used_percent':82},'errors':[]},path=path)
+    assert rt.recovery_findings('2026-11-26',{'findings':[],'metrics':{},'errors':['disk_unavailable']},path=path)==[]
+    recovered=rt.recovery_findings('2026-11-26',{'findings':[],'metrics':{'disk_used_percent':60},'errors':[]},path=path)
+    assert recovered==[{'component':'disk_used_percent','severity':'recovered','value':60}]
+    api=Fake()
+    rt.reconcile(F,'2026-11-25',api=api,path=path)
+    assert rt.reconcile(recovered[0],'2026-11-26',api=api,path=path)['action']=='updated'
+    assert api.rows[0]['state']=='open'
+
+
+def test_recovery_across_missing_day(tmp_path):
+    path=tmp_path/'private'/'db'
+    rt.persist('2026-11-25',{'findings':[F],'metrics':{'disk_used_percent':82},'errors':[]},path=path)
+    rt.persist('2026-11-26',{'findings':[],'metrics':{},'errors':['disk_unavailable']},path=path)
+    assert rt.recovery_findings('2026-11-27',{'findings':[],'metrics':{'disk_used_percent':60},'errors':[]},path=path)[0]['severity']=='recovered'
+
+
+def test_maintenance_lock(tmp_path):
+    import fcntl
+    from gway_agent_ops.daily_health_audit import maintenance_state
+    p=tmp_path/'lock'
+    assert maintenance_state(p)=='absent'
+    assert not p.exists()
+    p.touch(mode=0o600)
+    assert maintenance_state(p)=='unlocked'
+    with p.open('r+') as f:
+        fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        assert maintenance_state(p)=='held'
+
+
+def test_verified_installation(tmp_path):
+    import json
+    from gway_agent_ops.daily_health_audit import verified_installation
+    root=tmp_path/'.local/share/gway-agent-ops'
+    release=root/'releases'/('a'*40)
+    release.mkdir(parents=True)
+    (release/'bin').mkdir()
+    (release/'bin/agent').touch()
+    (root/'current').symlink_to(release)
+    entry=tmp_path/'.local/bin/agent'
+    entry.parent.mkdir()
+    entry.symlink_to(release/'bin/agent')
+    history=root/'verified-releases.json'
+    history.touch(mode=0o600)
+    info=release.stat()
+    history.write_text(json.dumps({'schema':1,'verified':[{'sha':release.name,'identity':[info.st_dev,info.st_ino]}]}))
+    assert verified_installation(tmp_path)
+    history.write_text(json.dumps({'schema':1,'verified':[]}))
+    assert not verified_installation(tmp_path)

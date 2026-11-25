@@ -137,7 +137,7 @@ def collect_extended(*, collector=collect, operational=None):
     extra, unavailable = (operational or operational_metrics)()
     metrics.update(extra)
     errors.extend(unavailable)
-    for key in ("throttle_flags",):
+    for key in ("throttle_flags", "agentops_release_unverified"):
         if metrics.get(key,0):
             report["findings"].append({"component":key,"severity":"warning","value":metrics[key]})
     return report
@@ -165,6 +165,14 @@ def operational_metrics(*, runner=subprocess.run, home=None):
                 metrics[key] = path.stat().st_size
         except OSError:
             errors.append(key+'_unavailable')
+    try:
+        metrics['maintenance_lock_state'] = maintenance_state(home/'.local/state/maintenance.lock')
+    except (OSError, ValueError):
+        errors.append('maintenance_lock_unavailable')
+    try:
+        metrics["agentops_release_unverified"] = not verified_installation(home)
+    except (OSError, ValueError, RuntimeError, TypeError):
+        errors.append("agentops_release_unavailable")
     return metrics, errors
 
 
@@ -174,3 +182,43 @@ def _journal_bytes(value):
     if not match:
         raise ValueError('journal_usage_unavailable')
     return int(float(match[1])*1024**(' KMGT'.index(match[2] or ' ')))
+
+
+def maintenance_state(path):
+    """Observe an existing lock without creating, truncating or replacing it."""
+    import fcntl
+    import stat
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return 'absent'
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1 or info.st_mode & 0o077:
+            raise ValueError('unsafe_maintenance_lock')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 'held'
+        return 'unlocked'
+    finally:
+        os.close(fd)
+
+
+def verified_installation(home):
+    """Compare actual activation pointers and inode against installer history."""
+    from .release_deploy import _read_history, _release_for, _directory
+    root = home/'.local/share/gway-agent-ops'
+    releases = root/'releases'
+    if maintenance_state(root/'.deploy.lock') == 'held':
+        raise ValueError('deployment_in_progress')
+    current = _release_for(root/'current', releases)
+    entry = _release_for(home/'.local/bin/agent', releases)
+    if current is None or entry != current:
+        return False
+    info = _directory(current)
+    history = _read_history(root)
+    result = any(r['sha']==current.name and r['identity']==[info.st_dev,info.st_ino] for r in history)
+    if maintenance_state(root/'.deploy.lock') == 'held' or _release_for(root/'current',releases)!=current:
+        raise ValueError('deployment_in_progress')
+    return result

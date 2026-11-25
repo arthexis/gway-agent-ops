@@ -56,6 +56,15 @@ def confirm_visible(component, day, *, path):
         db.execute("CREATE TABLE IF NOT EXISTS daily_health_writes (component TEXT, day TEXT, state TEXT, PRIMARY KEY(component,day))")
         db.execute("UPDATE daily_health_writes SET state='confirmed' WHERE component=? AND day=?", (component,day))
 
+def mapping(component, repo, *, path, number=None):
+    with TaskLedger(ledger_path(path)) as ledger:
+        db = ledger.db
+        db.execute('CREATE TABLE IF NOT EXISTS daily_health_mapping (component TEXT PRIMARY KEY, repo TEXT NOT NULL, number INTEGER NOT NULL)')
+        if number is not None:
+            db.execute('INSERT OR REPLACE INTO daily_health_mapping VALUES (?,?,?)',(component,repo,number))
+        row = db.execute('SELECT number FROM daily_health_mapping WHERE component=? AND repo=?',(component,repo)).fetchone()
+        return row[0] if row else None
+
 def reconcile(finding, local_date, *, api=gh, path=None):
     component = finding["component"]
     if not re.fullmatch(r"[a-z0-9_]{1,80}", component):
@@ -65,12 +74,15 @@ def reconcile(finding, local_date, *, api=gh, path=None):
     daily = f"<!-- gway-health-date:{local_date} -->"
     repo = "arthexis/gway-agent-ops" if component.startswith("agentops_") else REPO
     base = f"repos/{repo}/issues"
+    canonical = mapping(component, repo, path=path)
     rows = pages(base+"?state=open", api)
     if not any(marker in (r.get("body") or "") for r in rows):
         rows += pages(base+"?state=closed", api)
-    matches = [r for r in rows if "pull_request" not in r and marker in (r.get("body") or "")]
+    matches = [r for r in rows if "pull_request" not in r and (marker in (r.get("body") or "") or r.get("number") == canonical)]
     # A semantic candidate is not authorization to write to an unrelated issue.
     # Require a unique node-specific title with the same metric words.
+    if canonical is not None and not matches:
+        raise RuntimeError("canonical_issue_unavailable")
     if not matches:
         words = set(component.split('_')) - {'percent','bytes','min'}
         candidates = [r for r in rows if r.get('state') == 'open' and 'pull_request' not in r
@@ -97,14 +109,37 @@ def reconcile(finding, local_date, *, api=gh, path=None):
                 break
     if opened:
         number = int(opened[0]["number"])
+        mapping(component,repo,path=path,number=number)
         if daily in (opened[0].get("body") or "") or any(daily in (r.get("body") or "") for r in pages(f"{base}/{number}/comments", api)):
             return {"issue": number, "action": "already_reported"}
         write_once(component, local_date, f"{base}/{number}/comments", ("-X","POST","-f","body="+body), api=api,path=path)
         return {"issue": number, "action": "updated"}
+    if finding["severity"] == "recovered":
+        return {"action":"no_open_issue"}
     if matches:
         body += "\nPrevious occurrence: #" + str(max(int(r["number"]) for r in matches))
     row = write_once(component,local_date,base,("-X","POST","-f","title=[gway-001 health] "+component,"-f","body="+body),api=api,path=path)
+    mapping(component,repo,path=path,number=int(row["number"]))
     return {"issue": int(row["number"]), "action": "created"}
+
+def recovery_findings(day, report, *, path=None):
+    # Missing measurements are never evidence of recovery.
+    with TaskLedger(ledger_path(path)) as ledger:
+        db = ledger.db
+        db.execute('CREATE TABLE IF NOT EXISTS daily_health_baselines (local_date TEXT PRIMARY KEY, report TEXT NOT NULL)')
+        rows = db.execute('SELECT report FROM daily_health_baselines WHERE local_date < ? ORDER BY local_date DESC LIMIT 30',(day,)).fetchall()
+    active = {f['component'] for f in report['findings']}
+    unresolved = set(report['metrics']) - active
+    recovered = []
+    for row in rows:
+        previous = json.loads(row[0])
+        findings = {f['component'] for f in previous['findings']}
+        for component in sorted(unresolved & set(previous['metrics'])):
+            if component in findings:
+                recovered.append({'component':component,'severity':'recovered','value':report['metrics'][component]})
+            unresolved.remove(component)
+    return recovered
+
 
 def persist(local_date, report, *, path=None):
     cutoff = (date.fromisoformat(local_date)-timedelta(days=29)).isoformat()
@@ -119,8 +154,9 @@ def run(claim, *, path=None, collector=collect_extended, publisher=None):
         publisher = lambda f,d: reconcile(f,d,path=path)
     try:
         report = collector()
+        recovered = recovery_findings(day, report, path=path)
+        results = [publisher(f, day) for f in report["findings"] + recovered]
         persist(day, report, path=path)
-        results = [publisher(f, day) for f in report["findings"]]
     except Exception:
         store.finish(day, "failed", path=path)
         raise
