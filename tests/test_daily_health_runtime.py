@@ -80,6 +80,27 @@ def test_sustained_cpu(samples,severity,monkeypatch):
     from types import SimpleNamespace
     values=iter(samples)
     monkeypatch.setattr(audit.subprocess,'run',lambda *a,**k:SimpleNamespace(stdout=''))
-    report=audit.collect_extended(collector=lambda **kw:{'metrics':{'cpu_busy_percent':next(values)},'errors':[],'findings':[]})
+    report=audit.collect_extended(operational=lambda:({},[]),collector=lambda **kw:{'metrics':{'cpu_busy_percent':next(values)},'errors':[],'findings':[]})
     findings=[f for f in report['findings'] if f['component']=='cpu_sustained_min_percent']
     assert ([f['severity'] for f in findings] or [None])==[severity]
+
+
+def test_health_notifications(tmp_path, monkeypatch):
+    from gway_agent_ops import daily_health_notify as n
+    monkeypatch.setattr(n.activity_feed,'enabled',lambda:True)
+    monkeypatch.setattr(n.lcd_notification,'enabled',lambda:True)
+    calls=[]
+    report={'findings':[{'severity':'critical'}],'errors':[]}
+    for _ in range(2):
+        n.notify('2026-11-25',report,path=tmp_path/'private'/'db',runner=lambda argv,**kw:calls.append(argv))
+    assert len(calls)==3
+    assert 'agentops.daily-health' in calls[0]
+    assert 'CRITICAL_HEALTH' in calls[1][-1]
+    assert 'codex_failed' not in calls[1][-1]
+
+
+def test_semantic_candidate(tmp_path):
+    api=Fake()
+    api.rows=[{'number':1,'title':'gway-001 disk used capacity','body':'existing','state':'open'}]
+    assert rt.reconcile(F,'2026-11-25',api=api,path=tmp_path/'private'/'db')['action']=='updated'
+    assert len(api.rows)==1

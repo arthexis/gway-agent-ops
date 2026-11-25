@@ -101,7 +101,7 @@ def classify(metrics):
     return findings
 
 
-def collect_extended(*, collector=collect):
+def collect_extended(*, collector=collect, operational=None):
     """Bounded aggregate diagnostics; never publish raw process args or logs."""
     report = collector(sample_seconds=5)
     samples = [report["metrics"].get("cpu_busy_percent")]
@@ -134,4 +134,43 @@ def collect_extended(*, collector=collect):
     for key in ("failed_system_services","failed_user_services","zombie_processes"):
         if metrics.get(key,0):
             report["findings"].append({"component":key,"severity":"warning","value":metrics[key]})
+    extra, unavailable = (operational or operational_metrics)()
+    metrics.update(extra)
+    errors.extend(unavailable)
+    for key in ("throttle_flags",):
+        if metrics.get(key,0):
+            report["findings"].append({"component":key,"severity":"warning","value":metrics[key]})
     return report
+
+
+def operational_metrics(*, runner=subprocess.run, home=None):
+    """Fixed read-only probes; only counts, sizes and booleans are returned."""
+    home = Path.home() if home is None else Path(home)
+    metrics, errors = {}, []
+    probes = (
+        ('wireguard_interface_count', ['ip','-o','link','show','type','wireguard'], lambda s: len(s.splitlines())),
+        ('dns_resolved', ['getent','ahosts','github.com'], lambda s: bool(s.strip())),
+        ('journal_bytes', ['journalctl','--disk-usage'], lambda s: _journal_bytes(s)),
+        ('throttle_flags', ['vcgencmd','get_throttled'], lambda s: int(s.strip().split('=')[1],16)),
+    )
+    for key, argv, parse in probes:
+        try:
+            r = runner(argv,capture_output=True,text=True,timeout=5,check=True)
+            metrics[key] = parse(r.stdout)
+        except (OSError,subprocess.SubprocessError,ValueError,IndexError):
+            errors.append(key+'_unavailable')
+    for key, path in (('agentops_ledger_bytes',home/'.local/state/gway-agent-ops/tasks.sqlite3'),):
+        try:
+            if path.is_file() and not path.is_symlink():
+                metrics[key] = path.stat().st_size
+        except OSError:
+            errors.append(key+'_unavailable')
+    return metrics, errors
+
+
+def _journal_bytes(value):
+    import re
+    match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?)B?\s+in the file system',value)
+    if not match:
+        raise ValueError('journal_usage_unavailable')
+    return int(float(match[1])*1024**(' KMGT'.index(match[2] or ' ')))

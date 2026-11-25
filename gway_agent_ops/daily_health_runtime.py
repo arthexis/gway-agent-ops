@@ -69,10 +69,21 @@ def reconcile(finding, local_date, *, api=gh, path=None):
     if not any(marker in (r.get("body") or "") for r in rows):
         rows += pages(base+"?state=closed", api)
     matches = [r for r in rows if "pull_request" not in r and marker in (r.get("body") or "")]
+    # A semantic candidate is not authorization to write to an unrelated issue.
+    # Require a unique node-specific title with the same metric words.
+    if not matches:
+        words = set(component.split('_')) - {'percent','bytes','min'}
+        candidates = [r for r in rows if r.get('state') == 'open' and 'pull_request' not in r
+                      and 'gway-001' in (r.get('title') or '').lower()
+                      and words <= set(re.findall(r'[a-z0-9]+', (r.get('title') or '').lower()))]
+        if len(candidates) > 1:
+            raise RuntimeError('ambiguous_semantic_match')
+        if candidates:
+            matches = candidates
     opened = [r for r in matches if r.get("state") == "open"]
     if len(opened) > 1:
         raise RuntimeError("duplicate_existing_issues")
-    body = f"{daily}\nObservation: {local_date}\nSeverity: {finding['severity']}\nMetric: {component} = {finding['value']}\nInvestigate the underlying cause and verify recovery against the daily baseline."
+    body = f"{marker}\n{daily}\nObservation: {local_date}\nSeverity: {finding['severity']}\nMetric: {component} = {finding['value']}\nInvestigate the underlying cause and verify recovery against the daily baseline."
     # Recover prior uncertain writes only when their exact date marker is visible.
     with TaskLedger(ledger_path(path)) as ledger:
         db = ledger.db
@@ -92,7 +103,7 @@ def reconcile(finding, local_date, *, api=gh, path=None):
         return {"issue": number, "action": "updated"}
     if matches:
         body += "\nPrevious occurrence: #" + str(max(int(r["number"]) for r in matches))
-    row = write_once(component,local_date,base,("-X","POST","-f","title=[gway-001 health] "+component,"-f","body="+marker+"\n"+body),api=api,path=path)
+    row = write_once(component,local_date,base,("-X","POST","-f","title=[gway-001 health] "+component,"-f","body="+body),api=api,path=path)
     return {"issue": int(row["number"]), "action": "created"}
 
 def persist(local_date, report, *, path=None):
@@ -114,6 +125,8 @@ def run(claim, *, path=None, collector=collect_extended, publisher=None):
         store.finish(day, "failed", path=path)
         raise
     store.finish(day, "finished" if not report["errors"] else "failed", path=path)
+    from .daily_health_notify import notify
+    notify(day, report, path=path)
     return {"report": report, "issues": results}
 
 def stopped(day):
