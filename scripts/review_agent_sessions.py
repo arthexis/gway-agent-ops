@@ -20,6 +20,22 @@ def command(args):
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return None
 
+def evidence(payload, *keys):
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        return None
+    value = payload.get("data")
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    if not isinstance(value, list) or any(
+        not isinstance(item, dict) or not isinstance(item.get("issue"), str)
+        for item in value
+    ):
+        return None
+    return value
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--database', type=Path, default=Path(os.environ.get('CODEX_HOME', str(Path.home()/'.codex'))) / 'state_5.sqlite')
@@ -29,16 +45,28 @@ def main():
         db = sqlite3.connect(args.database.resolve().as_uri() + '?mode=ro', uri=True)
         db.row_factory = sqlite3.Row
         rows = db.execute('SELECT id,cwd,first_user_message,created_at,updated_at,attached_thread_parent_id FROM threads WHERE archived=0 ORDER BY created_at').fetchall()
-        children = collections.Counter(r[0] for r in db.execute('SELECT attached_thread_parent_id FROM threads WHERE archived=0 AND attached_thread_parent_id IS NOT NULL'))
+        children = collections.Counter()
+        parents = {r[0]: (r[1], r[2]) for r in db.execute(
+            'SELECT id,attached_thread_parent_id,archived FROM threads')}
+        for thread, (parent, archived) in parents.items():
+            if archived:
+                continue
+            seen = {thread}
+            while parent is not None and parent not in seen:
+                children[parent] += 1
+                seen.add(parent)
+                parent = parents.get(parent, (None, None))[0]
         db.close()
     except (sqlite3.Error, OSError) as exc:
         print('Cannot read Codex session index: ' + str(exc), file=sys.stderr); return 1
     history = command(['agent','history','--limit','1000','--json'])
     status = command(['agent','status','--json'])
-    if not isinstance(history, dict) or history.get('status') != 'ok': history = None
-    if not isinstance(status, dict) or status.get('status') != 'ok': status = None
-    executions = history.get('data',{}).get('executions',[]) if history else []
-    reservations = status.get('data',{}).get('admission',{}).get('reservations',[]) if status else []
+    executions = evidence(history, "executions")
+    reservations = evidence(status, "admission", "reservations")
+    history = executions is not None
+    status = reservations is not None
+    executions = executions or []
+    reservations = reservations or []
     issues = {}
     output = []
     for row in rows:
@@ -63,6 +91,7 @@ def main():
         elif active: verdict='active_issue'
         elif issue['state']=='OPEN': verdict='open_issue'
         elif children[row['id']]: verdict='has_unarchived_descendants'
+        elif len(nearby)>1: verdict='ambiguous_invocation'
         elif len(nearby)==1 and nearby[0]['state'] in ('finished','released','failed','interrupted'): verdict='candidate_verify_thread'
         output.append({'thread_id':row['id'],'issue':ref,'issue_state':issue['state'] if issue else 'unknown','title':issue.get('title') if issue else None,'url':issue.get('url') if issue else None,'created_at':datetime.fromtimestamp(row['created_at'],timezone.utc).isoformat(),'cwd':row['cwd'],'unarchived_children':children[row['id']],'nearby_executions':nearby,'active_issue_reservations':active,'assessment':verdict})
     result={'source':str(args.database),'history_available':bool(history),'status_available':bool(status),'history_limit':1000,'sessions':output,'counts':dict(collections.Counter(x['assessment'] for x in output)),'note':'Candidate execution matches use issue and time proximity, not proven identity. Check thread completion, descendants and current status before archiving.'}

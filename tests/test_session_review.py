@@ -32,3 +32,9 @@ def test_review_preserves_unknown_and_flags_candidate(tmp_path, monkeypatch, cap
     report = json.loads(capsys.readouterr().out)
     assert {s['thread_id']: s['assessment'] for s in report['sessions']} == {'closed':'candidate_verify_thread', 'unknown':'unknown'}
     assert sqlite3.connect(path).execute('SELECT count(*) FROM threads WHERE archived=0').fetchone()[0] == 3
+
+
+def test_malformed_evidence_is_unavailable():
+    for value in (None, {}, {"status": "ok"}, {"status": "ok", "data": {"executions": [None]}}):
+        assert review.evidence(value, "executions") is None
+    assert review.evidence({"status": "ok", "data": {"executions": []}}, "executions") == []
