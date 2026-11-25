@@ -7,6 +7,7 @@ complete audit or a scheduler entry point.
 from __future__ import annotations
 
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -98,3 +99,39 @@ def classify(metrics):
         if severity:
             findings.append({"component": metric, "severity": severity, "value": value})
     return findings
+
+
+def collect_extended(*, collector=collect):
+    """Bounded aggregate diagnostics; never publish raw process args or logs."""
+    report = collector(sample_seconds=5)
+    samples = [report["metrics"].get("cpu_busy_percent")]
+    for _ in range(5):
+        sample = collector(sample_seconds=5)
+        samples.append(sample["metrics"].get("cpu_busy_percent"))
+    if all(v is not None for v in samples):
+        sustained = min(samples)
+        report["metrics"]["cpu_sustained_min_percent"] = sustained
+        if sustained >= 40:
+            report["findings"].append({"component":"cpu_sustained_min_percent", "severity":"critical" if sustained >= 85 else "warning", "value":sustained})
+    else:
+        report["errors"].append("cpu_sustained_unavailable")
+    metrics = report["metrics"]
+    errors = report["errors"]
+    for key, argv in (
+        ("failed_system_services", ["systemctl","--failed","--no-legend","--plain","--no-pager"]),
+        ("failed_user_services", ["systemctl","--user","--failed","--no-legend","--plain","--no-pager"]),
+    ):
+        try:
+            r = subprocess.run(argv,capture_output=True,text=True,timeout=5,check=True)
+            metrics[key] = len([line for line in r.stdout.splitlines() if line.strip()])
+        except (OSError, subprocess.SubprocessError):
+            errors.append(key+"_unavailable")
+    try:
+        r = subprocess.run(["ps","-eo","stat="],capture_output=True,text=True,timeout=5,check=True)
+        metrics["zombie_processes"] = sum(line.strip().startswith("Z") for line in r.stdout.splitlines())
+    except (OSError,subprocess.SubprocessError):
+        errors.append("processes_unavailable")
+    for key in ("failed_system_services","failed_user_services","zombie_processes"):
+        if metrics.get(key,0):
+            report["findings"].append({"component":key,"severity":"warning","value":metrics[key]})
+    return report

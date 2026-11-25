@@ -144,3 +144,31 @@ def finish(local_date, outcome, *, path=None, now=None):
         except BaseException:
             db.execute("ROLLBACK")
             raise
+
+
+def inspect(*, path=None):
+    """Read schedule without creating or migrating the ledger."""
+    import sqlite3
+    from contextlib import closing
+    from urllib.parse import quote
+    import os, stat
+    target = ledger_path(path)
+    try:
+        parent, info = target.parent.lstat(), target.lstat()
+        if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_mode & 0o077:
+            raise PermissionError("unsafe ledger directory")
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_nlink != 1:
+            raise PermissionError("unsafe ledger file")
+        with closing(sqlite3.connect("file:"+quote(str(target.absolute()),safe="/")+"?mode=ro", uri=True, timeout=10)) as db:
+            db.row_factory = sqlite3.Row
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='daily_health_schedule'").fetchone():
+                return {"schedule": None, "claims": []}
+            row = db.execute("SELECT * FROM daily_health_schedule WHERE id=?", (TASK_ID,)).fetchone()
+            claims = db.execute("SELECT * FROM daily_health_claims WHERE task_id=? ORDER BY local_date DESC LIMIT 30", (TASK_ID,)).fetchall()
+            return {"schedule": dict(row) if row else None, "claims": [dict(r) for r in claims]}
+    except FileNotFoundError:
+        return {"schedule": None, "claims": []}
+    except ValueError as exc:
+        if str(exc) != "schedule_schema_missing":
+            raise
+        return {"schedule": None, "claims": []}
