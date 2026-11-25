@@ -580,3 +580,29 @@ one per line, no wildcard, no duplicate and no empty entries. Missing or
 invalid policy denies all publication, including environment opt-in. Match the
 Watchtower-issued grant explicitly; never infer broader authorization from
 GitHub access. No work or state transition is triggered by the publisher.
+
+### Daily MCP control-path assessment and emergency recovery (#114)
+
+The daily audit consumes the existing independent GWay Remote external monitor's
+root-owned sanitized status projection. It rejects stale, unsafe or invalid
+records. It does not read the monitor's OAuth credential. The projection checks
+public MCP initialization, catalog/scopes, provider reads and execution preview.
+A separate explicitly approved execute probe identity, supplied only as a private
+`~/.config/gway-agent-ops/mcp-health-execute.token`, can exercise the real
+node_exec and node_result path with a unique nonce and fixed harmless command.
+Do not reuse the cloud operator credential or expand the existing read grant.
+Without a separately approved identity the execute path is reported unverified.
+A synthetic node-side probe never attests an actual ChatGPT client session.
+
+Recovery is refused for missing credentials, expected auth denial, isolated
+provider failures, stale samples, or ambiguous execution rejection. Two distinct
+failed external samples, repeated execution-path failure, independent local
+fault evidence and idle admission are required. A root-owned policy pins a
+fixed reviewed recovery executable by SHA256 and the installed runtime revision.
+Its transient systemd unit has a fixed runtime and cgroup termination boundary.
+The local ledger claims the episode before any effect; uncertain attempts are
+not replayed, including across days. A healthy public read and execution probe
+clears the episode. Attempts retain sanitized before/after evidence. See GWay
+Remote's `docs/operations/mcp-health.md` for the disabled-by-default provisioning
+procedure and supported service-start/rollback recipe. No novel arbitrary code
+repair, credential mutation, or charging changes are authorized by that recipe.
