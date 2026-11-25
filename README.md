@@ -558,3 +558,14 @@ JSON outcomes, including the last successful (status ok) run retained in
 the journal. A degraded run exits nonzero and reports verification failures;
 journal retention bounds historical visibility. Disable with
 `systemctl --user disable --now gway-agent-ops-reconcile.timer`.
+
+
+### Activity Feed publisher policy
+The opt-in file `~/.config/gway-agent-ops/activity-feed.enabled` (mode 0600,
+content `enabled`) or the existing environment opt-in enables the hook only
+for repositories listed in `~/.config/gway-agent-ops/activity-feed.repositories`.
+The owner-private regular file must contain 1–32 exact owner/repository names,
+one per line, no wildcard, no duplicate and no empty entries. Missing or
+invalid policy denies all publication, including environment opt-in. Match the
+Watchtower-issued grant explicitly; never infer broader authorization from
+GitHub access. No work or state transition is triggered by the publisher.
