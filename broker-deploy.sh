@@ -9,4 +9,4 @@ case "$revision" in *[!0-9a-f]*) exit 2;; esac
 [ "$(id -u)" -ne 0 ] || exit 2
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-exec "$ROOT/deploy.sh" --expected-sha "$revision"
+exec /bin/sh "$ROOT/deploy.sh" --expected-sha "$revision"

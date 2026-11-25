@@ -50,7 +50,7 @@ def test_runner_uses_fixed_deploy_command(tmp_path):
         path.chmod(0o755)
     deploy = checkout / "deploy.sh"
     deploy.write_text('#!/bin/sh\nprintf "deploy %s %s\n" "$DBUS_SESSION_BUS_ADDRESS" "$*" >> "$LOG"\n')
-    deploy.chmod(0o755)
+    deploy.chmod(0o644)
     env = dict(os.environ, PATH=str(fake)+":/usr/bin:/bin", FAKE_SHA=sha, LOG=str(log))
     subprocess.run([str(checkout/"broker-deploy.sh")], env=env, check=True)
     calls = log.read_text()
