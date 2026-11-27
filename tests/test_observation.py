@@ -82,6 +82,35 @@ class ObservationTests(unittest.TestCase):
                 observe("arthexis/example#3", "2026-10-13T15:00:00Z",
                         state_dir=root)
 
+    def test_lifecycle_timestamps_are_recorded_not_inferred(self):
+        from gway_agent_ops.reporting import _key
+        issue, at = "arthexis/example#5", "2026-10-13T15:00:00.000000Z"
+        submit_time = "2026-10-13T19:00:00.000000Z"
+        accept_time = "2026-10-13T19:00:01.000000Z"
+        start_time = "2026-10-13T19:00:02.000000Z"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            requests = root / "requests"
+            requests.mkdir(mode=0o700)
+            key = _key(issue, at) + ".json"
+            (requests / key).write_text(json.dumps(
+                {"issue": issue, "at": at, "state": "requested",
+                 "source": "scheduled", "trigger": "scheduler-due",
+                 "submitted_at": submit_time}))
+            (root / "accepted.jsonl").write_text(json.dumps(
+                {"issue": issue, "at": at, "accepted_at": accept_time}) + "\n")
+            enqueue(issue, at, state_dir=root, status="finished", exit_code=0,
+                    execution_started_at=start_time)
+            result = observe(issue, at, state_dir=root)
+            self.assertEqual(result["at"], at)
+            self.assertEqual(result["source"], "scheduled")
+            self.assertEqual(result["trigger"], "scheduler-due")
+            self.assertEqual(result["submitted_at"], submit_time)
+            self.assertEqual(result["accepted_at"], accept_time)
+            self.assertEqual(result["execution_started_at"], start_time)
+            self.assertGreaterEqual(result["terminal_recorded_at"], start_time)
+            self.assertNotIn("delivered_at", result)
+
     def test_rejects_invalid_issue(self):
         with self.assertRaises(ValueError):
             observe("owner/repo/pull/2", "2026-10-13T15:00:00Z")
