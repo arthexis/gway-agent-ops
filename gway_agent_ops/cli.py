@@ -165,11 +165,9 @@ def main(argv=None):
         except ValueError as exc:
             parser.error(str(exc))
     if args.command == "pickup-status":
-        from .pickup_activation import load
-        from .pickup_store import snapshot
+        from .pickup_activation import status as pickup_status
         try:
-            config = load()
-            result, code = envelope(args.command, "ok", data={"mode": config["mode"] if config else "disabled", "assignments": snapshot()}), 0
+            result, code = envelope(args.command, "ok", data=pickup_status()), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             result, code = envelope(args.command, "error", error={"code": "pickup_status_unavailable"}), 1
         print(json_line(result) if args.json else str(result))
@@ -417,6 +415,8 @@ def main(argv=None):
             budgets = read_budgets()
             data = status_data(active=not admission["available"], **budgets)
             data["admission"] = admission
+            from .pickup_activation import status as pickup_status
+            data["pickup"] = pickup_status()
             result, code = envelope("status", "ok", data=data), 0
         except (ValueError, OSError, KeyError, TypeError):
             result, code = envelope("status", "error", error={
