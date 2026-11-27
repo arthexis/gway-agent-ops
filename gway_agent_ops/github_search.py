@@ -13,7 +13,6 @@ from urllib.parse import urlencode
 
 from .github_issues import IssueRejected, REPOSITORY
 
-SEARCH_LABELS = frozenset({"gway-001", "gway-004", "local-agent"})
 NODE_LABEL = re.compile(r"gway-[0-9]{3}", re.ASCII)
 PAGE_SIZE = 100
 MAX_PAGES = 3
@@ -22,7 +21,7 @@ MAX_PAGES = 3
 def search_issues(*, label: str | None = None, creator: str = "arthexis",
                   runner=subprocess.run) -> list[dict]:
     if (label is not None and (not isinstance(label, str) or
-            (label not in SEARCH_LABELS and not NODE_LABEL.fullmatch(label)))) or creator != "arthexis":
+            not NODE_LABEL.fullmatch(label))) or creator != "arthexis":
         raise IssueRejected("invalid_issue_search")
     query = urlencode({"q": f"is:issue is:open author:{creator}" + (f" label:{label}" if label else ""),
                        "per_page": PAGE_SIZE})
