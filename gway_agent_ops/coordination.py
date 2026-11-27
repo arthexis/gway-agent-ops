@@ -35,6 +35,7 @@ _REPO = re.compile(r"arthexis/[A-Za-z0-9_.-]{1,100}\Z")
 
 class CoordinationError(ValueError):
     """No admission may occur after an uncertain coordinator operation."""
+    code = "coordination_unavailable"
 
 
 def _require(condition):
