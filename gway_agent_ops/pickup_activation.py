@@ -44,3 +44,15 @@ def load(*, path=None, node_reader=socket.gethostname):
             or _instant(data["cutover"]) > datetime.now(timezone.utc)):
         raise ValueError("pickup_configuration_invalid")
     return data
+
+
+def status():
+    """Bounded read-only projection; pickup faults must not hide manual status."""
+    from .pickup_store import snapshot
+    try:
+        config = load()
+        rows = snapshot()
+        return {"mode": config["mode"] if config else "disabled",
+                "assignment_count": len(rows), "assignments": rows[-50:]}
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError):
+        return {"mode": "unavailable", "assignment_count": None, "assignments": []}
