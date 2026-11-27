@@ -87,3 +87,18 @@ def test_preflight_hold_after_claim_is_definitive(tmp_path):
     args["submitter"] = submit
     assert runtime.tick(**args)["state"] == "deferred"
     assert not calls
+
+
+def test_general_activation_requires_independent_canary_receipt(tmp_path):
+    args,labels,events,quota,calls = setup(tmp_path)
+    args["config_reader"] = lambda: {**CONFIG,"mode":"enabled",
+                                     "canary_issue":REF,"canary_generation":"12"}
+    assert runtime.tick(**args)["state"] == "canary_not_accepted"
+    assert not calls
+
+
+def test_fair_scan_cursor(tmp_path):
+    args,_,_,_,_ = setup(tmp_path)
+    refs = ["arthexis/a#1","arthexis/b#2","arthexis/c#3"]
+    assert [store.next_candidate("gway-001",refs,path=args["path"]) for _ in range(4)] == [
+        refs[0],refs[1],refs[2],refs[0]]
