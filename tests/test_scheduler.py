@@ -480,3 +480,18 @@ def test_quota_probe_failure_is_deferred(ledger):
                             resolver=trusted, budget_reader=unavailable,
                             submitter=lambda *_a, **_k: pytest.fail("failed quota probe dispatched"))
     assert result["results"][0]["receipt"] == {"code": "quota_deferred", "reason": "budget_unknown"}
+
+
+def test_original_schedule_trace_survives_retries_and_native_dispatch(ledger):
+    first = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted,
+                             request_at=NOW.isoformat(),trace_id="a"*32)
+    second = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted,
+                              request_at=NOW.isoformat(),trace_id="b"*32)
+    assert first["schedule_id"] == second["schedule_id"]
+    assert second["schedule_trace_id"] == "a"*32
+    calls = []
+    def submit(ref, at, **kwargs):
+        calls.append(kwargs)
+        return {"state":"requested"}
+    scheduler.tick(ledger_path=ledger, now=NOW+timedelta(hours=2),resolver=trusted,submitter=submit)
+    assert calls[0]["schedule_trace_id"] == "a"*32
