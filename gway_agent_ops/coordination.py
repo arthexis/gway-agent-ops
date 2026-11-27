@@ -330,3 +330,55 @@ def general_pickup_ready():
     """Operator attestation is separate from local canary and live claim checks."""
     config = load_config()
     return bool(config and config["general_pickup_accepted"])
+
+
+def reconcile_terminal(ref, at, *, root=None):
+    """Explicit owner recovery of an exact, definitively settled local claim.
+
+    Never launches work, never expires a claim, never guesses interruption.
+    A local intent without a launch/acceptance is not terminal evidence.
+    """
+    import fcntl
+    from .dispatch import DEFAULT_STATE, _private_directory
+    from .capacity import repo_lock
+    from .observation import observe
+    from .reporting import _key
+    root = Path(root or DEFAULT_STATE)
+    at = timestamp(at)
+    coordinator = configured()
+    _require(coordinator is not None)
+    _private_directory(root)
+    requests = root / "requests"
+    _private_directory(requests)
+    gate = os.open(requests / "submission.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fd = os.open(repo_lock(root, ref), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = observe(ref, at, state_dir=root)
+            _require(result.get("state") in ("released", "preacceptance_failed") or
+                     (result.get("state") in ("finished", "codex_failed")
+                      and type(result.get("exit_code")) is int))
+            marker = requests / (_key(ref, at) + ".json")
+            claim = None
+            if marker.is_file() and not marker.is_symlink():
+                row = json.loads(marker.read_text(encoding="utf-8"))
+                _require(row.get("issue") == ref and row.get("at") == at)
+                claim = row.get("coordination_claim")
+            journal = root / "accepted.jsonl"
+            if journal.exists():
+                _require(not journal.is_symlink())
+                for line in journal.read_text(encoding="utf-8").splitlines():
+                    row = json.loads(line)
+                    if row.get("issue") == ref and row.get("at") == at:
+                        other = row.get("coordination_claim")
+                        _require(claim is None or other == claim)
+                        claim = other
+            _require(_claim_valid(claim))
+            coordinator.release(ref, at, claim)
+            return {"issue": ref, "at": at, "state": "coordination_released"}
+        finally:
+            os.close(fd)
+    finally:
+        os.close(gate)
