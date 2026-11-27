@@ -700,6 +700,12 @@ agent spare-budget --normal-weekly-per-hour 0.5 --task-weekly-percent 3 \
   --task-five-hour-percent 10 --task-minutes 30 --json
 ```
 
+An operator-owned mode 0600 JSON file can hold the six numeric calibration
+fields (`normal_weekly_per_hour`, `task_weekly_percent`,
+`task_five_hour_percent`, `task_minutes`, `weekly_reserve`, and
+`five_hour_reserve`). Supply it with `agent spare-budget --profile PATH --json`.
+Do not combine a profile with individual estimate flags.
+
 Calibrate normal weekly percentage points per hour from representative account
 history, and use conservative per-task cost and duration estimates measured in
 each window separately. Defaults reserve 10 weekly and 20 five-hour percentage
