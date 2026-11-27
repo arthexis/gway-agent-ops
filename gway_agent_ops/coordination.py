@@ -19,6 +19,8 @@ import stat
 from .dispatch import DEFAULT_STATE, ISSUE, Busy, timestamp, _private_directory
 
 CONFIG = Path("/etc/gway-mcp-providers/agentops.coordination.json")
+CANARY_CONFIG = Path("/etc/gway-mcp-providers/agentops.coordination-canary.json")
+CANARY_ROOT = DEFAULT_STATE.parent/"coordination-canary"
 HEX = re.compile(r"[a-f0-9]{64}\Z")
 TOKEN = re.compile(r"[a-f0-9]{32}\Z")
 NODE = re.compile(r"gway-[0-9]{3}\Z")
@@ -253,7 +255,15 @@ def exchange(request,*,root=DEFAULT_STATE):
     snapshot=request["operation"]=="snapshot"
     require(set(request)==({"operation","epoch"} if snapshot else {"operation","epoch","decisions"}))
     box=configured(root)
-    require(box is not None and request["epoch"]==box.config["epoch"])
+    if box is None or request["epoch"]!=box.config["epoch"]:
+        # Explicit owner-provisioned isolated fixture. Never used by any
+        # actual submission/admission path. The epoch selects only this
+        # fixed separate root, never a path from the request.
+        canary=load_config(CANARY_CONFIG)
+        require(canary is not None and not canary["general_pickup_accepted"]
+                and canary["epoch"]==request["epoch"]
+                and (box is None or box.config["epoch"]!=canary["epoch"]))
+        box=Mailbox(CANARY_ROOT,canary)
     result={"epoch":box.config["epoch"],"node":box.node}
     if snapshot:
         result["intents"]=box.snapshot()
