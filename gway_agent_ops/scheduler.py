@@ -214,6 +214,9 @@ def inspect(schedule_id, *, ledger_path=None, observer=None):
         if state in ("requested", "launch_unconfirmed", "provisioning", "accepted", "finished",
                      "codex_failed", "interrupted", "released", "preacceptance_failed", "unknown"):
             return {**record, "execution_state": state,
+                    **{key: result[key] for key in ("source", "trigger", "submitted_at",
+                       "accepted_at", "execution_started_at", "terminal_recorded_at", "delivered_at")
+                       if isinstance(result.get(key), str)},
                     "execution_terminal": state in
                     ("finished", "codex_failed", "interrupted", "released", "preacceptance_failed")}
     except (ValueError, OSError, KeyError, TypeError):
@@ -244,8 +247,9 @@ def cancel(schedule_id, *, ledger_path=None):
 def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, budget_reader=None, limit=10):
     """Explicit scheduler-only tick. Claim-before-I/O enforces at-most-once.
 
-    Definitive busy outcomes defer within a bounded retry budget; ambiguous
-    launches and interrupted claims never retry automatically.
+    Definitive busy outcomes and unavailable/stale/exhausted quota defer
+    within bounded retry policies; ambiguous launches and interrupted claims
+    never retry automatically.
     """
     from .nonblocking import submit
     if type(limit) is not int or not 1 <= limit <= 100:
