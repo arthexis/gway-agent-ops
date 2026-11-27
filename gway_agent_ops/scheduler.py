@@ -119,7 +119,7 @@ def _ensure(db):
                       ("next_attempt_at", "TEXT"),
                       ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
                       ("first_deferred_at", "TEXT"),
-                      ("last_attempt_at", "TEXT")):
+                      ("last_attempt_at", "TEXT"), ("schedule_trace_id", "TEXT")):
         if name not in names:
             db.execute("ALTER TABLE schedules ADD COLUMN " + name + " " + ddl)
     db.execute("CREATE INDEX IF NOT EXISTS schedules_due ON schedules(state,run_at)")
@@ -144,7 +144,10 @@ def _validate_issue(ref, resolver=None):
     return data
 
 
-def create(ref, run_at, *, request_at=None, ledger_path=None, actor=None, now=None, resolver=None):
+def create(ref, run_at, *, request_at=None, ledger_path=None, actor=None, now=None, resolver=None, trace_id=None):
+    import re
+    if trace_id is not None and (type(trace_id) is not str or not re.fullmatch(r"[0-9a-f]{32}", trace_id)):
+        raise ValueError("invalid_trace_id")
     _validate_issue(ref, resolver)
     current = now or datetime.now(timezone.utc)
     due = parse_run_at(run_at, now=current, existing=True)
@@ -169,9 +172,9 @@ def create(ref, run_at, *, request_at=None, ledger_path=None, actor=None, now=No
                 parse_run_at(run_at, now=current)
                 stamp = _utc_now()
                 db.execute("""INSERT INTO schedules
-                    (schedule_id,issue,run_at,dispatch_at,actor,approval_event_id,state,created_at,updated_at)
-                    VALUES(?,?,?,?,?, ?,'scheduled',?,?)""",
-                    (identity, ref, due, dispatch_at, principal, approval, stamp, stamp))
+                    (schedule_id,issue,run_at,dispatch_at,actor,approval_event_id,state,created_at,updated_at,schedule_trace_id)
+                    VALUES(?,?,?,?,?, ?,'scheduled',?,?,?)""",
+                    (identity, ref, due, dispatch_at, principal, approval, stamp, stamp, trace_id))
             else:
                 if (record["issue"] != ref or record["run_at"] != due
                         or record["approval_event_id"] != approval):
@@ -215,7 +218,8 @@ def inspect(schedule_id, *, ledger_path=None, observer=None):
                      "codex_failed", "interrupted", "released", "preacceptance_failed", "unknown"):
             return {**record, "execution_state": state,
                     **{key: result[key] for key in ("source", "trigger", "submitted_at",
-                       "accepted_at", "execution_started_at", "terminal_recorded_at", "delivered_at")
+                       "accepted_at", "execution_started_at", "terminal_recorded_at", "delivered_at",
+                       "submission_trace_id", "schedule_trace_id")
                        if isinstance(result.get(key), str)},
                     "execution_terminal": state in
                     ("finished", "codex_failed", "interrupted", "released", "preacceptance_failed")}
@@ -328,7 +332,9 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, budget_re
                     else:
                         result = (submitter or submit)(
                             record["issue"], record["dispatch_at"],
-                            source="scheduled", trigger="scheduler-due")
+                            source="scheduled", trigger="scheduler-due",
+                            **({"schedule_trace_id": record["schedule_trace_id"]}
+                               if record.get("schedule_trace_id") else {}))
                     authority.db.execute("COMMIT")
                 except BaseException:
                     authority.db.execute("ROLLBACK")
