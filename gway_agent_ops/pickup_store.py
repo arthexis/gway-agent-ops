@@ -161,8 +161,11 @@ def snapshot(*, path=None):
         db.row_factory = sqlite3.Row
         if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pickup_assignments'").fetchone():
             return []
-        return [dict(row) for row in db.execute(
-            "SELECT * FROM pickup_assignments ORDER BY updated_at,issue,generation")]
+        rows = [dict(row) for row in db.execute(
+            "SELECT * FROM pickup_assignments ORDER BY updated_at,issue,generation LIMIT 5001")]
+        if len(rows) > 5000:
+            raise ValueError("pickup_ledger_limit")
+        return rows
     finally:
         db.close()
 
