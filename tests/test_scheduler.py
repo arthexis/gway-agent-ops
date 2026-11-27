@@ -17,6 +17,21 @@ def trusted(_):
     return {"labels": ["gway-001"], "state": "open", "creator": "arthexis"}
 
 
+
+def _budget(percent=100):
+    observed = datetime.now(timezone.utc)
+    return {window: {"available": True, "remaining_percent": percent,
+                     "source": "test", "observed_at": observed.isoformat(),
+                     "resets_at": (observed + timedelta(hours=1)).isoformat()}
+            for window in ("five_hour", "weekly")}
+
+
+@pytest.fixture(autouse=True)
+def live_quota_stub(monkeypatch):
+    # Every legacy scheduler test remains hermetic after the live quota gate.
+    monkeypatch.setattr(scheduler, "read_live_budgets", _budget)
+
+
 @pytest.fixture
 def ledger(tmp_path):
     path = tmp_path / "private" / "tasks.sqlite3"
@@ -391,3 +406,56 @@ def test_workspace_provisioning_observation(ledger, execution_state, terminal):
                                observer=lambda *_a: {"state": execution_state})
     assert result["execution_state"] == execution_state
     assert result["execution_terminal"] is terminal
+
+
+@pytest.mark.parametrize("budget", [{}, {"five_hour": {"available": False}}, None])
+def test_unavailable_quota_persists_deferred_identity_and_recovers(ledger, budget):
+    row = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    due = NOW + timedelta(hours=1)
+    forbid = lambda *_a, **_k: pytest.fail("quota unavailable dispatched")
+    first = scheduler.tick(ledger_path=ledger, now=due, resolver=trusted,
+                           budget_reader=lambda: budget, submitter=forbid)
+    assert first["results"][0]["receipt"] == {"code": "quota_deferred", "reason": "budget_unknown"}
+    pending = scheduler.get(row["schedule_id"], ledger_path=ledger)
+    assert pending["quota_attempts"] == 1
+    assert pending["first_deferred_at"] and pending["last_attempt_at"]
+    assert pending["dispatch_at"] == row["dispatch_at"]
+    assert scheduler.tick(ledger_path=ledger, now=due + timedelta(minutes=4),
+                          resolver=trusted, submitter=forbid)["processed"] == 0
+    calls = []
+    def submit(ref, at, **kwargs):
+        calls.append((ref, at, kwargs))
+        return {"state": "requested"}
+    final = scheduler.tick(ledger_path=ledger, now=due + timedelta(minutes=5),
+                           resolver=trusted, submitter=submit)
+    assert final["results"][0]["state"] == "requested"
+    assert calls == [(REF, row["dispatch_at"], {"source": "scheduled", "trigger": "scheduler-due"})]
+    assert scheduler.get(row["schedule_id"], ledger_path=ledger)["next_attempt_at"] is None
+    assert scheduler.tick(ledger_path=ledger, now=due + timedelta(minutes=10),
+                          resolver=trusted, submitter=forbid)["processed"] == 0
+
+
+def test_quota_deferral_expires_without_dispatch(ledger):
+    row = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    due = NOW + timedelta(hours=1)
+    forbid = lambda *_a, **_k: pytest.fail("expired schedule dispatched")
+    first = scheduler.tick(ledger_path=ledger, now=due, resolver=trusted,
+                           budget_reader=lambda: _budget(0), submitter=forbid)
+    assert first["results"][0]["receipt"]["reason"] == "budget_exhausted"
+    final = scheduler.tick(ledger_path=ledger, now=due + timedelta(hours=24),
+                           resolver=trusted, submitter=forbid)
+    assert final["results"][0]["receipt"]["code"] == "quota_retry_expired"
+    assert scheduler.get(row["schedule_id"], ledger_path=ledger)["state"] == "blocked"
+
+
+def test_revoked_deferred_schedule_never_launches(ledger):
+    row = scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    due = NOW + timedelta(hours=1)
+    forbid = lambda *_a, **_k: pytest.fail("revoked schedule dispatched")
+    scheduler.tick(ledger_path=ledger, now=due, resolver=trusted,
+                   budget_reader=lambda: {}, submitter=forbid)
+    with TaskLedger(ledger) as entry:
+        entry.decide(REF, "veto_approved", actor="operator", reason="revoked")
+    outcome = scheduler.tick(ledger_path=ledger, now=due + timedelta(minutes=5),
+                             resolver=trusted, submitter=forbid)
+    assert outcome["results"][0]["receipt"]["code"] == "schedule_approval_revoked"
