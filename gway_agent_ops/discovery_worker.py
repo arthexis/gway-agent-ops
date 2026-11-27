@@ -1,4 +1,5 @@
 """Bounded, read-only discovery of opted-in issues independent of deploy targets."""
+import socket
 import sqlite3
 import time
 
@@ -9,7 +10,11 @@ from .task_ledger import TaskLedger
 
 def list_opted_in(*, runner=None):
     """Search accessible GitHub repositories, not Remote's deploy registry."""
-    options = {"label": "local-agent"}
+    from .pickup_policy import NODE
+    node = socket.gethostname()
+    if not NODE.fullmatch(node):
+        raise ValueError("invalid_node")
+    options = {"label": node}
     if runner is not None:
         options["runner"] = runner
     return [f'{item["repository"]}#{item["number"]}' for item in search_issues(**options)]

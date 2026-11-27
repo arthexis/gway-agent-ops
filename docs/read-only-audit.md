@@ -11,7 +11,7 @@ agent observe arthexis/example#19 --at 2026-10-25T18:00:00Z --json
 agent report --json
 ```
 
-The dispatch issue must be trusted, allowlisted, and labeled exactly `gway-001`;
+The dispatch issue must be trusted; explicit execution does not require a node assignment label;
 the checkout must be clean before the audit begins. An audit uses `codex exec
 --sandbox read-only` and checks Git status again after execution. Any
 modification invalidates the audit result; Agent Ops never commits or deploys

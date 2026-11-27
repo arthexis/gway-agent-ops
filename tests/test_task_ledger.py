@@ -132,12 +132,12 @@ def test_discovery_requires_trusted_open_labeled_issue(tmp_path):
         ready(ledger)
         def valid(issue):
             assert issue == ISSUE
-            return {"state": "open", "creator": "arthexis", "labels": ["local-agent"]}
-        assert ledger.discover_verified(ISSUE, resolver=valid)["state"] == "requested"
+            return {"state": "open", "creator": "arthexis", "labels": ["gway-001"]}
+        assert ledger.discover_verified(ISSUE, resolver=valid, node="gway-001")["state"] == "requested"
         def unlabeled(issue):
             return {"state": "open", "creator": "arthexis", "labels": []}
         with pytest.raises(IssueRejected):
-            ledger.discover_verified("arthexis/gway-agent-ops#27", resolver=unlabeled)
+            ledger.discover_verified("arthexis/gway-agent-ops#27", resolver=unlabeled, node="gway-001")
         assert ledger.get("arthexis/gway-agent-ops#27") is None
 
 
@@ -151,17 +151,17 @@ def test_removed_deployment_target_does_not_change_approved_task(tmp_path):
         assert ledger.next_approved()["issue"] == ISSUE
         assert ledger.get(ISSUE)["state"] == "approved"
 
-def test_reconciliation_withdraws_only_on_verified_label_removal(tmp_path):
+def test_reconciliation_preserves_manual_approval_on_label_removal(tmp_path):
     with TaskLedger(tmp_path / "ledger.sqlite") as ledger:
         ready(ledger)
         ledger.discover(ISSUE)
         ledger.decide(ISSUE, "approve", actor="operator")
         def removed(issue):
             return {"state": "open", "labels": []}
-        assert ledger.reconcile_issue(ISSUE, resolver=removed)["state"] == "withdrawn"
-        assert ledger.next_approved() is None
+        assert ledger.reconcile_issue(ISSUE, resolver=removed)["state"] == "approved"
+        assert ledger.next_approved()["issue"] == ISSUE
         assert ledger.db.execute(
-            "SELECT count(*) FROM events WHERE action='withdraw_approved'").fetchone()[0] == 1
+            "SELECT count(*) FROM events WHERE action='withdraw_approved'").fetchone()[0] == 0
 
 
 def test_reconciliation_network_failure_preserves_approval(tmp_path):

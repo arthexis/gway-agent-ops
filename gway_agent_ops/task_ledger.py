@@ -188,7 +188,7 @@ class TaskLedger:
             self.db.execute("ROLLBACK")
             raise
 
-    def discover_verified(self, issue, *, resolver=None):
+    def discover_verified(self, issue, *, resolver=None, node=None):
         """Opt-in discovery, validated against GitHub; no Codex execution."""
         from .github_issues import resolve, IssueRejected
         self.require_eligible(issue)
@@ -196,7 +196,12 @@ class TaskLedger:
         data = check(issue)
         if data["state"] != "open" or data["creator"].casefold() != "arthexis":
             raise IssueRejected("untrusted_issue")
-        if "local-agent" not in data.get("labels", []):
+        import socket
+        from .pickup_policy import NODE
+        node = node or socket.gethostname()
+        labels = data.get("labels", [])
+        if (not NODE.fullmatch(node) or node not in labels or "on-hold" in labels
+                or sum(bool(NODE.fullmatch(label)) for label in labels) != 1):
             raise IssueRejected("missing_opt_in_label")
         return self.discover(issue)
 
@@ -211,7 +216,9 @@ class TaskLedger:
             if exc.code != "issue_not_open":
                 raise
             data = {"state": "closed", "labels": []}
-        if data["state"] == "open" and "local-agent" in data.get("labels", []):
+        # Explicit ledger approval is independent of auto-pickup labels.
+        # Only a verified closed issue withdraws existing manual authority.
+        if data["state"] == "open":
             return self.get(issue)
         task = self.get(issue)
         if task is None or task["state"] not in ("requested", "approved"):

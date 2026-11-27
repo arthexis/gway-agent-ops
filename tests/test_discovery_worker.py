@@ -1,5 +1,10 @@
 """Dynamic, opt-in discovery does not use Remote deployment targets."""
 from gway_agent_ops.discovery_worker import tick
+import pytest
+
+@pytest.fixture(autouse=True)
+def node_identity(monkeypatch):
+    monkeypatch.setattr("socket.gethostname", lambda: "gway-001")
 from gway_agent_ops.task_ledger import TaskLedger
 
 ISSUE = "arthexis/gway-agent-ops#42"
@@ -7,7 +12,7 @@ UNREGISTERED = "arthexis/ocpp-reports#211"
 
 
 def valid(ref):
-    return {"state": "open", "creator": "arthexis", "labels": ["local-agent"]}
+    return {"state": "open", "creator": "arthexis", "labels": ["gway-001"]}
 
 
 def test_tick_discovers_without_approval_or_registry(tmp_path):
@@ -71,4 +76,4 @@ def test_reconciliation_only(tmp_path):
         ledger.discover(ISSUE)
         result = reconcile(ledger, resolver=lambda ref: {"state": "open", "labels": []})
         assert result == {"discovered": 0, "reconciled": 1, "errors": []}
-        assert ledger.get(ISSUE)["state"] == "withdrawn"
+        assert ledger.get(ISSUE)["state"] == "requested"

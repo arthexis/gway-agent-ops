@@ -104,6 +104,8 @@ def call_tool(name, args):
         admission = admission_status()
         data = status_data(active=not admission["available"], **read_budgets())
         data["admission"] = admission
+        from .pickup_activation import status as pickup_status
+        data["pickup"] = pickup_status()
         return data
     if name == "preview":
         return issue_preview(args["ref"])

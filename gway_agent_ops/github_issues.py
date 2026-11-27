@@ -65,7 +65,7 @@ def resolve(ref: str, *, repo: str | None = None, allowed_repositories: tuple[st
         return {"labels": [x["name"] for x in labels], "repository": repository, "number": number,
                 "title": payload["title"], "body": payload.get("body") or "",
                 "url": f"https://github.com/{repository}/issues/{number}",
-                "creator": payload["user"]["login"], "state": "open",
+                "creator": payload["user"]["login"], "creator_id": payload["user"].get("id"), "state": "open",
                 "comments": payload["comments"]}
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, IssueRejected):
