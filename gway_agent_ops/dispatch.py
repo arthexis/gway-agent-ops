@@ -117,7 +117,7 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                             not in terminal
                             and row["issue"].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()):
                         raise Busy("a previously accepted invocation is unresolved in this repository")
-                record = {"issue": issue, "at": at}
+                record = {"issue": issue, "at": at, "accepted_at": timestamp()}
                 # A direct CLI worker may have a dedicated, identity-bound
                 # systemd service. Capture provenance before accepting work.
                 # Interactive/legacy CLI calls keep the existing fail-closed
