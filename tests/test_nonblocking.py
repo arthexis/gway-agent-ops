@@ -37,8 +37,13 @@ class NonblockingTests(unittest.TestCase):
 
     def test_once_only_and_observable(self):
         self.assertEqual(self.send()["state"], "requested")
-        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "requested")
+        first = observe(REF, AT, state_dir=self.root)
+        self.assertEqual(first["state"], "requested")
+        self.assertEqual(first["source"], "direct-cli")
+        self.assertEqual(first["trigger"], "cli-submit")
+        self.assertGreater(first["submitted_at"], first["at"])
         self.assertEqual(self.send()["state"], "already_requested")
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["submitted_at"], first["submitted_at"])
         self.assertEqual(len(list((self.root / "requests").glob("*.json"))), 1)
 
     def test_preflight_failure_does_not_write_request(self):
