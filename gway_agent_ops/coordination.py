@@ -184,13 +184,19 @@ class Coordinator:
         _require(self.node in config["members"])
         self.store = store or GitHubRefStore(config)
 
-    def acquire(self, ref, at):
+    def acquire(self, ref, at, *, token=None):
         repo, identity = keys(ref, at)
+        token = token or secrets.token_hex(16)
+        _require(type(token) is str and _TOKEN.fullmatch(token))
+        claim = {"identity": identity, "node": self.node, "token": token}
         parent, data = self.store.read()
+        # Only a locally durable, identical intent can adopt a previously
+        # uncertain CAS. A different node or invocation cannot adopt it.
+        if data["claims"].get(repo) == claim:
+            return claim
         if repo in data["claims"] or identity in data["history"]:
             return None
         _require(len(data["history"]) < MAX_HISTORY)
-        claim = {"identity": identity, "node": self.node, "token": secrets.token_hex(16)}
         updated = {**data, "claims": {**data["claims"], repo: claim},
                    "history": [*data["history"], identity]}
         self.store.write(parent, updated)
@@ -250,12 +256,44 @@ def release_if_configured(ref, at, claim):
         return False
 
 
-def reserve_submission(ref, at):
+def _intent(root, ref, at, coordinator):
+    """Persist the exact token before any remote write, under the local gate."""
+    from .dispatch import _private_directory
+    from .reporting import _key, _write
+    folder = Path(root) / "coordination-intents"
+    _private_directory(folder)
+    marker = folder / (_key(ref, at) + ".json")
+    if marker.is_symlink():
+        raise CoordinationError("coordination_unavailable")
+    repo, identity = keys(ref, at)
+    if marker.exists():
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        _require(type(record) is dict and set(record) == {"schema", "epoch", "repo", "claim"}
+                 and record["schema"] == 1 and record["epoch"] == coordinator.config["epoch"]
+                 and record["repo"] == repo and _claim_valid(record["claim"])
+                 and record["claim"]["identity"] == identity
+                 and record["claim"]["node"] == coordinator.node)
+        return record["claim"]["token"]
+    token = secrets.token_hex(16)
+    _write(marker, {"schema": 1, "epoch": coordinator.config["epoch"], "repo": repo,
+                    "claim": {"identity": identity, "node": coordinator.node, "token": token}})
+    return token
+
+
+def _reserve_new(coordinator, root, ref, at):
+    return coordinator.acquire(ref, at, token=_intent(root, ref, at, coordinator))
+
+
+def reserve_submission(ref, at, *, root):
     """Under the existing node submission gate; None means legacy mode."""
     coordinator = configured()
     if coordinator is None:
+        # Removing configuration cannot bypass an already-persisted intent.
+        from .reporting import _key
+        intent = Path(root) / "coordination-intents" / (_key(ref, at) + ".json")
+        _require(not intent.exists() and not intent.is_symlink())
         return None
-    claim = coordinator.acquire(ref, at)
+    claim = _reserve_new(coordinator, root, ref, at)
     if claim is None:
         from .dispatch import Busy
         raise Busy("shared repository or invocation already reserved")
@@ -277,8 +315,11 @@ def reserve_admission(ref, at, *, marker):
         coordinator.verify(ref, at, claim)
         return claim
     if coordinator is None:
+        from .reporting import _key
+        intent = marker.parent.parent / "coordination-intents" / (_key(ref, at) + ".json")
+        _require(not intent.exists() and not intent.is_symlink())
         return None
-    claim = coordinator.acquire(ref, at)
+    claim = _reserve_new(coordinator, marker.parent.parent, ref, at)
     if claim is None:
         from .dispatch import Busy
         raise Busy("shared repository or invocation already reserved")
