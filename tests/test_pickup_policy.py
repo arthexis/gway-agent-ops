@@ -13,7 +13,7 @@ def issue(*labels):
 
 
 def event(id=1, *, actor="arthexis", action="labeled", label="gway-001"):
-    return {"id": id, "event": action, "actor": {"login": actor},
+    return {"id": id, "event": action, "actor": {"login": actor, "id": 780437 if actor == "arthexis" else 123},
             "label": {"name": label}, "created_at": NOW.isoformat()}
 
 
