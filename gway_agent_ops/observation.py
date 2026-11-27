@@ -132,7 +132,7 @@ def _provenance(root: Path, ref: str, at: str) -> dict:
     record = json.loads(path.read_text(encoding="utf-8"))
     if record.get("issue") != ref or record.get("at") != at:
         return {}
-    return {key: record[key] for key in ("source", "trigger", "submitted_at")
+    return {key: record[key] for key in ("source", "trigger", "submitted_at", "submission_trace_id", "schedule_trace_id")
             if isinstance(record.get(key), str)}
 
 
