@@ -130,3 +130,21 @@ def test_owner_retires_grant_without_launch(mailbox):
     assert c.reconcile_terminal(REF,AT,root=mailbox.root)["state"]=="coordination_release_recorded"
     assert mailbox.snapshot()==[{**original,"state":"terminal"}]
     assert observe(REF,AT,state_dir=mailbox.root)["state"]=="unknown"
+
+
+def test_canary_uses_separate_mailbox_and_only_synthetic_refs(tmp_path,monkeypatch):
+    root=tmp_path/"canary"
+    monkeypatch.setattr(c,"CANARY_ROOT",root)
+    def config(path=c.CONFIG,**kwargs):
+        return CONFIG if path==c.CANARY_CONFIG else None
+    monkeypatch.setattr(c,"load_config",config)
+    monkeypatch.setattr(c.socket,"gethostname",lambda:"gway-001")
+    result=c.canary("prepare")
+    assert result["intents"]==[{"ref":"agentops-canary/synthetic#1","state":"pending"}]
+    box=c.Mailbox(root,CONFIG,node="gway-001")
+    original=grant(box)
+    assert c.canary("retire")["intents"][0]["state"]=="terminal"
+    box.apply([{**original,"state":"released"}])
+    assert c.canary("status")["intents"][0]["state"]=="released"
+    assert c.configured(tmp_path/"production") is None
+    assert not (tmp_path/"production").exists()
