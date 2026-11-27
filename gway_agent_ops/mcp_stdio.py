@@ -90,7 +90,9 @@ TOOLS += tuple({"name": "daily_health_"+op,
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 
 
-def call_tool(name, args):
+def call_tool(name, args, *, trace_id=None):
+    if trace_id is not None and (type(trace_id) is not str or not re.fullmatch(r"[0-9a-f]{32}", trace_id)):
+        raise ValueError("invalid_arguments")
     schema = SCHEMAS.get(name)
     if schema is None or type(args) is not dict:
         raise ValueError("invalid_tool")
@@ -113,7 +115,8 @@ def call_tool(name, args):
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
         return issue_submit(args["ref"], args["at"],
-                            source="remote-api", trigger="mcp-submit")
+                            source="remote-api", trigger="mcp-submit",
+                            **({"trace_id": trace_id} if trace_id else {}))
     if name == "reservation_cancel":
         if type(args["at"]) is not str:
             raise ValueError("invalid_timestamp")
@@ -123,7 +126,8 @@ def call_tool(name, args):
         if name == "schedule":
             if type(args["run_at"]) is not str:
                 raise ValueError("invalid_run_at")
-            return scheduler.create(args["ref"], args["run_at"], request_at=args.get("at"))
+            return scheduler.create(args["ref"], args["run_at"], request_at=args.get("at"),
+                                    **({"trace_id": trace_id} if trace_id else {}))
         if name == "scheduled_list":
             return {"schedules": scheduler.list_schedules()}
         if name == "scheduled_get":
@@ -213,7 +217,12 @@ def handle(request):
         if type(params) is not dict or type(params.get("name")) is not str:
             raise ValueError("invalid_arguments")
         try:
-            data = call_tool(params["name"], params.get("arguments", {}))
+            rid = request["id"]
+            trace_id = rid if type(rid) is str and re.fullmatch(r"[0-9a-f]{32}", rid) else None
+            data = call_tool(params["name"], params.get("arguments", {}),
+                             **({"trace_id": trace_id} if trace_id else {}))
+            if trace_id and isinstance(data, dict):
+                data = {**data, "mcp_trace_id": trace_id}
             result = {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]}
         except (ValueError, RuntimeError, OSError) as exc:
             result = _safe_error(exc)
