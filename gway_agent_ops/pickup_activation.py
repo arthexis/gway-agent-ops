@@ -1,6 +1,7 @@
 """Owner-controlled activation for automatic pickup; absent means disabled."""
 from datetime import datetime, timezone
 import json
+import sqlite3
 from pathlib import Path
 import socket
 
@@ -54,5 +55,5 @@ def status():
         rows = snapshot()
         return {"mode": config["mode"] if config else "disabled",
                 "assignment_count": len(rows), "assignments": rows[-50:]}
-    except (OSError, ValueError, RuntimeError, TypeError, KeyError):
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, sqlite3.Error):
         return {"mode": "unavailable", "assignment_count": None, "assignments": []}
