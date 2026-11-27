@@ -39,8 +39,7 @@ Any open, trusted-author GitHub issue in an accessible repository may be submitt
 without a routing label. Labels remain optional task-policy hints (for example,
 `agentops:implementation`); they do **not** authorize execution. Operator action,
 trusted author, current GitHub issue validation, workspace checks, and single-slot
-idempotent admission remain mandatory. The separate `local-agent` discovery opt-in
-is unchanged: discovery does not dispatch automatically.
+idempotent admission remain mandatory. Node labels now designate automatic pickup only; `local-agent` is retired. The read-only discovery path does not dispatch.
 
 ## Contents
 
@@ -344,8 +343,7 @@ new GitHub permissions or make a repository a deployment target. The
 `gway-remote deploy-targets` registry stays independent and restricted.
 
 An issue is trusted only when it is a real open GitHub **issue** (not a PR)
-with canonical identity, created by `arthexis`, and is explicitly routed with
-the exact `gway-001` label for execution. Preview does no execution.
+with canonical identity, created by `arthexis`, ; manual execution requires no node label. Preview does no execution.
 `submit` requires an authorized operator call with `gway:execute`, fresh
 revalidation, a frozen UTC identity, and the existing one-at-a-time durable
 admission. `READ-ONLY DEFAULT` remains active. Neither repository access nor
@@ -358,9 +356,7 @@ issue body. There is deliberately **no implicit clone** or credential
 installation: a missing or unsafe checkout fails closed and must be provisioned
 separately through approved workspace setup. Preview works without checkout.
 
-The MCP/CLI issue list performs bounded GitHub-wide search for
-`gway-001`-labeled issues from `arthexis`; the independent discovery loop
-uses `local-agent`. The search is at most 3 pages of 100 issues, and rejects
+The MCP/CLI issue list performs bounded GitHub-wide search for trusted open issues from `arthexis`; automatic pickup searches only the exact installed node label. The search is at most 3 pages of 100 issues, and rejects
 incomplete results instead of representing a partial list as complete. A
 search result never authorizes execution; `submit` re-fetches the issue.
 
@@ -437,7 +433,7 @@ canonical issue in state `approved` with a durable operator `approve` event.
 The event ID is bound to the schedule. Both due-time claim and immediate
 pre-dispatch checks require that *same* approval generation; a veto,
 withdrawal, or approval after revocation cannot revive an old schedule.
-The normal GitHub open/trusted-creator and `gway-001` label gates still
+The normal GitHub open/trusted-creator gates still
 apply. Scheduling does **not** authorize an external production deployment.
 
 Use the canonical `GWAY_AGENT_LEDGER_PATH` when configured. Schedule list/get
@@ -627,3 +623,50 @@ typed execute failure qualifies only with all independent routes blocked and
 proven local fault. 17.5-minute sample separation fits the existing 30-minute
 budget. Cached post-repair failure is not restoration; later healthy evidence
 clears the episode. Recovery remains disabled pending controlled acceptance.
+
+
+## Automatic node assignment (#126)
+
+The exact issue label `gway-NNN` means automatic pickup by that node only.
+`on-hold` suppresses new automatic pickup; it does not interrupt an accepted
+worker or revoke separately authorized manual execution. No label is required
+for preview, submit, direct execution or explicit fixed schedules. Neither
+legacy discovery nor a workflow may attach a node label as descriptive
+metadata or as a prerequisite to manual dispatch. Runner labels and device
+identities are unrelated. Do not bulk migrate historical issue labels.
+
+The existing one-minute scheduler processes one bounded round-robin candidate
+per tick after the established schedule/recurrence/daily-health work. Both
+Codex quota windows are read from the installed app-server using the existing
+protected runtime; exhausted or unavailable budget records a durable deferral.
+A reset timestamp alone is not proof of available quota. The stable GitHub
+label-event ID and the frozen dispatch timestamp bind claims and receipts.
+Only a definitive non-launch result permits retry. Existing local manual
+history, explicit approvals/schedules, active recurrence and maintenance
+block automatic claims. Historical assignment to another node blocks pickup
+pending independent reconciliation; this is not a cross-node shared lock.
+
+Commands (read-only):
+```sh
+agent pickup-preview --json
+agent pickup-status --json
+agent status --json
+```
+
+Deployment leaves pickup disabled. Absence of the owner-only 0600
+`~/.config/gway-agent-ops/pickup.json` means disabled. Initial controlled
+activation is restricted to gway-001. After a reviewed cutover, the owner can
+stage a mode `canary` configuration with exactly the keys `schema` (1),
+`node`, `mode`, `cutover` (UTC instant before the new assignment),
+`issue` (canonical ref) and `generation` (string GitHub labeled-event ID).
+Use one explicitly authorized harmless issue, fresh label, and independently
+verify the real terminal delivered receipt, hold behavior, quota deferral and
+duplicate protection. Do not arm an existing historic assignment.
+
+Mode `enabled` replaces `issue`/`generation` with `canary_issue` and
+`canary_generation`; the scheduler requires the actual matching successful
+delivered receipt before any general pickup. Do not enable until the canary,
+legacy producers, deployment convergence and cross-node/independent manual
+coordination have been reviewed. Other nodes remain disabled until separately
+accepted. Removing the config stops new automatic claims without cancelling
+in-flight work. Never use a new timestamp to replay an uncertain invocation.
