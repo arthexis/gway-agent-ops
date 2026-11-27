@@ -445,7 +445,7 @@ def main(argv=None):
         return code
     if args.command == "coordination-exchange":
         # Internal fixed receiver protocol, never a federated tool.
-        import sys
+        import json
         from .coordination import exchange
         try:
             request = json.loads(sys.stdin.buffer.read(32769))
