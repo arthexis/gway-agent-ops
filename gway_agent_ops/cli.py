@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import sys
 import subprocess
+import sqlite3
 from .contracts import envelope, json_line, status_data
 from . import __version__
 from .adopt import inspect, adopt as adopt_config
@@ -211,7 +212,7 @@ def main(argv=None):
                 try:
                     from .pickup_runtime import tick as pickup_tick
                     data["pickup"] = pickup_tick()
-                except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError, sqlite3.Error):
                     data["pickup_error"] = "pickup_tick_failed"
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
