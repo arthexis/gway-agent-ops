@@ -115,6 +115,8 @@ def build_parser():
     scheduled_cancel.add_argument("--json", action="store_true")
     scheduled_tick = sub.add_parser("schedule-tick", help="Explicit opt-in scheduler pass")
     scheduled_tick.add_argument("--json", action="store_true")
+    pickup_preview = sub.add_parser("pickup-preview", help="Read-only automatic issue pickup preflight")
+    pickup_preview.add_argument("--json", action="store_true")
     recurring = sub.add_parser("schedule-recurring",
                                help="Define PAUSED recurring issue schedule; opt in with recurring-resume")
     recurring.add_argument("ref")
@@ -161,6 +163,17 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "pickup-preview":
+        from .pickup_preview import preview
+        try:
+            data = preview()
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            result, code = envelope(args.command, "error", error={
+                "code": "pickup_preview_unavailable",
+                "message": "Pickup preflight unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
+        return code
     if args.command in ("schedule", "schedule-list", "schedule-show",
                         "schedule-cancel", "schedule-tick"):
         from . import scheduler
