@@ -17,7 +17,6 @@ from .pickup_budget import read_live_budgets
 from .pickup_evidence import candidates, label_events
 from .pickup_policy import NODE, _instant, assignment, budget_decision
 from .scheduler import ledger_path
-from .task_ledger import TaskLedger
 from .nonblocking import submit
 from .observation import observe
 
@@ -99,10 +98,17 @@ def _overlap(ref, assigned, root, path):
             return "already_handled"
     # Preserve explicitly approved work. Conservative exclusion of any active
     # recurring policy in this repository avoids selector/claim races.
-    with TaskLedger(ledger_path(path)) as ledger:
-        db = ledger.db
-        task = ledger.get(ref)
-        if task and task["state"] in ("approved", "vetoed", "running"):
+    import sqlite3
+    from urllib.parse import quote
+    ledger = ledger_path(path)
+    # Claim already initialized the private ledger. Read-only connection avoids
+    # inversion with the scheduled path (ledger write transaction -> submit lock).
+    store.snapshot(path=path)
+    db = sqlite3.connect("file:" + quote(str(ledger.absolute()), safe="/") + "?mode=ro",
+                         uri=True, timeout=5)
+    try:
+        task = db.execute("SELECT state FROM tasks WHERE issue=? COLLATE NOCASE", (ref,)).fetchone()
+        if task and task[0] in ("approved", "vetoed", "running"):
             return "explicit_approval"
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "schedules" in tables and db.execute(
@@ -115,6 +121,8 @@ def _overlap(ref, assigned, root, path):
                AND repository=? COLLATE NOCASE AND (issue IS NULL OR issue=? COLLATE NOCASE) LIMIT 1""",
             (ref.split("#",1)[0],ref)).fetchone():
             return "explicit_schedule"
+    finally:
+        db.close()
     return None
 
 
