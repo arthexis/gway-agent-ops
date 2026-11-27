@@ -14,7 +14,7 @@ CONFIG = {"schema":1, "node":"gway-001","mode":"canary",
 def setup(tmp_path):
     labels = ["gway-001"]
     events = [{"id":12,"event":"labeled","label":{"name":"gway-001"},
-               "actor":{"login":"arthexis"},"created_at":(NOW-timedelta(minutes=1)).isoformat()}]
+               "actor":{"login":"arthexis","id":780437},"created_at":(NOW-timedelta(minutes=1)).isoformat()}]
     def resolve(ref):
         return {"state":"open","creator":"arthexis","labels":labels[:]}
     quota = {"rateLimits": {
