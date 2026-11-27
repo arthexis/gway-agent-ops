@@ -180,6 +180,7 @@ _SAFE_CODES = frozenset({
     "unit_stop_unconfirmed", "unit_inactive_unconfirmed",
     "invalid_run_at", "timezone_required", "run_at_out_of_range",
     "invalid_schedule_id", "schedule_not_found", "schedule_not_cancellable",
+    "coordination_unavailable",
     "invalid_recurring_target", "invalid_recurring_interval",
     "recurring_interval_out_of_range", "unsafe_title_regex",
     "selector_required", "selector_conflict", "title_prefix_required",
