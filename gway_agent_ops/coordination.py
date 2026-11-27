@@ -307,3 +307,27 @@ def reconcile_terminal(ref,at,*,root=None):
             os.close(fd)
     finally:
         os.close(gate)
+
+
+def canary(action):
+    """Fixed synthetic acceptance fixture; cannot execute or reserve real work."""
+    require(action in ("prepare","retire","replay","status"))
+    cfg=load_config(CANARY_CONFIG)
+    require(cfg is not None and not cfg["general_pickup_accepted"])
+    active=load_config()
+    require(active is None or active["epoch"]!=cfg["epoch"])
+    box=Mailbox(CANARY_ROOT,cfg)
+    require(box.node in ("gway-001","gway-004"))
+    own=1 if box.node=="gway-001" else 2
+    number=3-own if action=="replay" else own
+    ref="agentops-canary/synthetic#"+str(number)
+    at="2020-01-01T00:00:00Z"
+    if action in ("prepare","replay"):
+        box.reserve(ref,at)
+    elif action=="retire":
+        claim=box.reserve(ref,at)
+        require(claim is not None)
+        box.terminal(ref,at,claim)
+    with box.tx() as db:
+        rows=[dict(row) for row in db.execute("SELECT ref,state FROM intents ORDER BY ref")]
+    return {"node":box.node,"epoch":cfg["epoch"],"intents":rows}
