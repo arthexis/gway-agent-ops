@@ -125,6 +125,14 @@ def build_parser():
     scheduled_tick.add_argument("--json", action="store_true")
     pickup_preview = sub.add_parser("pickup-preview", help="Read-only automatic issue pickup preflight")
     pickup_preview.add_argument("--json", action="store_true")
+    spare = sub.add_parser("spare-budget", help="Estimate expiring quota without starting work")
+    spare.add_argument("--normal-weekly-per-hour", type=float)
+    spare.add_argument("--task-weekly-percent", type=float)
+    spare.add_argument("--task-five-hour-percent", type=float)
+    spare.add_argument("--task-minutes", type=float)
+    spare.add_argument("--weekly-reserve", type=float, default=10)
+    spare.add_argument("--five-hour-reserve", type=float, default=20)
+    spare.add_argument("--json", action="store_true")
     sub.add_parser("pickup-status", help="Read automatic pickup activation and durable assignments").add_argument("--json", action="store_true")
     recurring = sub.add_parser("schedule-recurring",
                                help="Define PAUSED recurring issue schedule; opt in with recurring-resume")
@@ -172,6 +180,22 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "spare-budget":
+        from datetime import datetime, timezone
+        from .pickup_budget import read_live_budgets
+        from .spare_budget import estimate
+        try:
+            data = estimate(read_live_budgets(), now=datetime.now(timezone.utc),
+                normal_weekly_per_hour=args.normal_weekly_per_hour,
+                task_weekly_percent=args.task_weekly_percent,
+                task_five_hour_percent=args.task_five_hour_percent,
+                task_minutes=args.task_minutes, weekly_reserve=args.weekly_reserve,
+                five_hour_reserve=args.five_hour_reserve)
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, OverflowError):
+            result, code = envelope(args.command, "error", error={"code": "spare_budget_unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
+        return code
     if args.command == "pickup-status":
         from .pickup_activation import status as pickup_status
         try:
