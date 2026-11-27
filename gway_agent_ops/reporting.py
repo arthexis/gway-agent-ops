@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from .dispatch import DEFAULT_STATE, _private_directory
+from .dispatch import DEFAULT_STATE, _private_directory, timestamp
 
 ISSUE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
 
@@ -85,7 +85,7 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     # Terminal applies to Codex only, not independent host effects.
     record = {"issue": issue, "at": at, "status": status, "exit_code": exit_code,
               "admin_work_state": "not_attested",
-              "marker": "agent-dispatch:" + identity}
+              "marker": "agent-dispatch:" + identity, "terminal_recorded_at": timestamp()}
     if audit:
         from .audit_receipt import validate
         allowed = ("receipt_valid", "receipt_missing", "receipt_invalid",
@@ -292,6 +292,8 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
                              "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
                              "receipt": record.get("receipt"),
                              "findings_state": record.get("findings_state"),
+                             "terminal_recorded_at": record.get("terminal_recorded_at"),
+                             "delivered_at": timestamp(),
                              "admin_work_state": record.get("admin_work_state", "not_attested")})
                 path.unlink()
                 sent += 1
