@@ -171,3 +171,19 @@ class McpStdioTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_transport_trace_is_separate_from_caller_arguments():
+    rid = "a"*32
+    args = {"ref":"arthexis/example#1", "at":"2026-10-13T15:00:00Z"}
+    request = {"jsonrpc":"2.0","id":rid,"method":"tools/call",
+               "params":{"name":"submit","arguments":args}}
+    with patch.object(mcp_stdio,"issue_submit",return_value={"state":"requested"}) as submit:
+        result = mcp_stdio.handle(request)
+        submit.assert_called_once_with(args["ref"],args["at"],source="remote-api",
+                                        trigger="mcp-submit",trace_id=rid)
+    assert json.loads(result["result"]["content"][0]["text"])["mcp_trace_id"] == rid
+    request["params"]["arguments"] = {**args, "trace_id":"b"*32}
+    with patch.object(mcp_stdio,"issue_submit") as submit:
+        assert mcp_stdio.handle(request)["result"]["isError"]
+        submit.assert_not_called()
