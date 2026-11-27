@@ -73,8 +73,9 @@ def load_config(path=CONFIG, *, node=None):
         data = json.loads(raw)
     except (ValueError, UnicodeError):
         raise CoordinationError("coordination_unavailable") from None
-    _require(type(data) is dict and set(data) == {"schema", "repository", "members", "epoch"}
+    _require(type(data) is dict and set(data) == {"schema", "repository", "members", "epoch", "general_pickup_accepted"}
              and data["schema"] == 1
+             and type(data["general_pickup_accepted"]) is bool
              and type(data["repository"]) is str and _REPO.fullmatch(data["repository"])
              and type(data["epoch"]) is str and _TOKEN.fullmatch(data["epoch"])
              and type(data["members"]) is list and 1 <= len(data["members"]) <= 32
@@ -206,7 +207,12 @@ class Coordinator:
         repo, identity = keys(ref, at)
         _require(_claim_valid(claim) and claim["identity"] == identity and claim["node"] == self.node)
         parent, data = self.store.read()
-        _require(data["claims"].get(repo) == claim)
+        if data["claims"].get(repo) != claim:
+            # Never remove a later owner's reservation. If this identity
+            # was reserved and is no longer active, release already settled.
+            _require(identity in data["history"] and not any(
+                x["identity"] == identity for x in data["claims"].values()))
+            return
         remaining = dict(data["claims"])
         del remaining[repo]
         self.store.write(parent, {**data, "claims": remaining})
@@ -220,10 +226,11 @@ def configured():
 def coordination_status():
     try:
         config = load_config()
-        return {"mode": "configured" if config else "legacy", "active": False,
+        return {"mode": "configured" if config else "legacy",
+                "general_pickup_accepted": bool(config and config["general_pickup_accepted"]),
                 "members": config["members"] if config else []}
     except (OSError, ValueError, TypeError):
-        return {"mode": "unavailable", "active": False, "members": []}
+        return {"mode": "unavailable", "general_pickup_accepted": False, "members": []}
 
 
 def release_if_configured(ref, at, claim):
@@ -241,3 +248,44 @@ def release_if_configured(ref, at, claim):
         return True
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         return False
+
+
+def reserve_submission(ref, at):
+    """Under the existing node submission gate; None means legacy mode."""
+    coordinator = configured()
+    if coordinator is None:
+        return None
+    claim = coordinator.acquire(ref, at)
+    if claim is None:
+        from .dispatch import Busy
+        raise Busy("shared repository or invocation already reserved")
+    return claim
+
+
+def reserve_admission(ref, at, *, marker):
+    """Adopt only the exact durable reservation made before systemd launch."""
+    coordinator = configured()
+    if marker.is_symlink():
+        raise CoordinationError("coordination_unavailable")
+    if marker.exists():
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        _require(record.get("issue") == ref and record.get("at") == at)
+        claim = record.get("coordination_claim")
+        if coordinator is None:
+            _require(claim is None)
+            return None
+        coordinator.verify(ref, at, claim)
+        return claim
+    if coordinator is None:
+        return None
+    claim = coordinator.acquire(ref, at)
+    if claim is None:
+        from .dispatch import Busy
+        raise Busy("shared repository or invocation already reserved")
+    return claim
+
+
+def general_pickup_ready():
+    """Operator attestation is separate from local canary and live claim checks."""
+    config = load_config()
+    return bool(config and config["general_pickup_accepted"])
