@@ -688,3 +688,36 @@ legacy producers, deployment convergence and cross-node/independent manual
 coordination have been reviewed. Other nodes remain disabled until separately
 accepted. Removing the config stops new automatic claims without cancelling
 in-flight work. Never use a new timestamp to replay an uncertain invocation.
+# Spare budget estimate
+
+`agent spare-budget --json` is a read-only forecast, not permission to dispatch.
+It reads fresh quota for the Agent Ops runtime account and returns `data.spare`
+and a reason. Without all four calibrated inputs it returns false with
+`calibration_required`. For example (illustrative numbers, not measurements):
+
+```sh
+agent spare-budget --normal-weekly-per-hour 0.5 --task-weekly-percent 3 \
+  --task-five-hour-percent 10 --task-minutes 30 --json
+```
+
+Calibrate normal weekly percentage points per hour from representative account
+history, and use conservative per-task cost and duration estimates measured in
+each window separately. Defaults reserve 10 weekly and 20 five-hour percentage
+points; override with `--weekly-reserve` and `--five-hour-reserve`. Forecast
+normal demand to the current weekly reset, subtract it and the reserve from
+weekly remaining, then require enough surplus and five-hour headroom for a task.
+Tasks crossing either reset, stale or unavailable observations, and missing
+calibration fail closed. Reset timestamps do not prove future replenishment.
+Percentages have different denominators and are never converted or added.
+The result also projects sequential task slots in the current and subsequent
+five-hour windows until the weekly reset. Future windows starting at 100% are
+a hypothetical planning scenario, not observed or guaranteed quota. Capacity
+is expressed in weekly percentage points using the independently calibrated
+per-task weekly cost; it does not subtract future normal five-hour usage beyond
+the configured per-window reserve. The at-risk-if-deferred figure estimates
+weekly surplus exceeding all future task capacity, so it is optimistic about
+future availability. The current boolean still requires a fresh reading and
+one task fitting before either reset. A new reading is required after each reset.
+Concurrent or external use and changing task costs can invalidate the estimate;
+re-read immediately before any separate admission decision. This command does
+not collect history, enforce spending, schedule tasks, or enable pickup.
