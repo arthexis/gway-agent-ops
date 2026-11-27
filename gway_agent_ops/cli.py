@@ -117,6 +117,7 @@ def build_parser():
     scheduled_tick.add_argument("--json", action="store_true")
     pickup_preview = sub.add_parser("pickup-preview", help="Read-only automatic issue pickup preflight")
     pickup_preview.add_argument("--json", action="store_true")
+    sub.add_parser("pickup-status", help="Read automatic pickup activation and durable assignments").add_argument("--json", action="store_true")
     recurring = sub.add_parser("schedule-recurring",
                                help="Define PAUSED recurring issue schedule; opt in with recurring-resume")
     recurring.add_argument("ref")
@@ -163,6 +164,16 @@ def main(argv=None):
                 timestamp(args.at)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "pickup-status":
+        from .pickup_activation import load
+        from .pickup_store import snapshot
+        try:
+            config = load()
+            result, code = envelope(args.command, "ok", data={"mode": config["mode"] if config else "disabled", "assignments": snapshot()}), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+            result, code = envelope(args.command, "error", error={"code": "pickup_status_unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
+        return code
     if args.command == "pickup-preview":
         from .pickup_preview import preview
         try:
@@ -199,6 +210,11 @@ def main(argv=None):
                         data["daily_health"] = daily
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
                     data["daily_health_error"] = "daily_health_tick_failed"
+                try:
+                    from .pickup_runtime import tick as pickup_tick
+                    data["pickup"] = pickup_tick()
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
+                    data["pickup_error"] = "pickup_tick_failed"
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             result, code = envelope(args.command, "error", error={
