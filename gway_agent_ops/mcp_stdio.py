@@ -108,6 +108,8 @@ def call_tool(name, args, *, trace_id=None):
         data["admission"] = admission
         from .pickup_activation import status as pickup_status
         data["pickup"] = pickup_status()
+        from .coordination import coordination_status
+        data["coordination"] = coordination_status()
         return data
     if name == "preview":
         return issue_preview(args["ref"])
