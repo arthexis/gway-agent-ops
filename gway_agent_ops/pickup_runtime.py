@@ -164,6 +164,9 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
                 or proof.get("state") != "finished" or proof.get("exit_code") != 0
                 or proof.get("delivery_confirmed") is not True):
             return {"mode":mode,"processed":0,"state":"canary_not_accepted"}
+        from .coordination import general_pickup_ready
+        if not general_pickup_ready():
+            return {"mode":mode,"processed":0,"state":"coordination_not_accepted"}
     refs = candidate_reader(node)
     if mode == "canary":
         ref, generation = config["issue"], config["generation"]
