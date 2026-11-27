@@ -9,7 +9,7 @@ NOW = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
 
 
 def issue(*labels):
-    return {"state": "open", "creator": "arthexis", "labels": list(labels)}
+    return {"state": "open", "creator": "arthexis", "creator_id": 780437, "labels": list(labels)}
 
 
 def event(id=1, *, actor="arthexis", action="labeled", label="gway-001"):
