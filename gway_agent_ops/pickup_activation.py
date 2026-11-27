@@ -30,15 +30,17 @@ def load(*, path=None, node_reader=socket.gethostname):
         if set(data) != {"schema", "node", "mode"}:
             raise ValueError("pickup_configuration_invalid")
         return None
-    # Only 001 is currently approved for canary activation. A fleet-wide
-    # activation and cross-node/manual execution fence require acceptance.
-    if node != "gway-001" or data.get("mode") != "canary":
+    # Initial production activation is only supported on the accepted canary
+    # node. Additional nodes require their own rollout and coordination review.
+    if node != "gway-001" or data.get("mode") not in ("canary", "enabled"):
         raise ValueError("pickup_activation_not_accepted")
-    if set(data) != {"schema", "node", "mode", "cutover", "issue", "generation"}:
+    keys = ("issue", "generation") if data["mode"] == "canary" else ("canary_issue", "canary_generation")
+    if set(data) != {"schema", "node", "mode", "cutover", *keys}:
         raise ValueError("pickup_configuration_invalid")
-    if (not isinstance(data["issue"], str) or not ISSUE.fullmatch(data["issue"])
-            or not isinstance(data["generation"], str)
-            or not GENERATION.fullmatch(data["generation"])
+    ref, generation = (data[key] for key in keys)
+    if (not isinstance(ref, str) or not ISSUE.fullmatch(ref)
+            or not isinstance(generation, str)
+            or not GENERATION.fullmatch(generation)
             or _instant(data["cutover"]) > datetime.now(timezone.utc)):
         raise ValueError("pickup_configuration_invalid")
     return data
