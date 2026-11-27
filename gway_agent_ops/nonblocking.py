@@ -89,7 +89,11 @@ def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str |
 def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = None,
            state_dir: Path | None = None, runner=subprocess.run,
            source: str = "direct-cli", trigger: str = "cli-submit",
-           pickup_preflight=None) -> dict:
+           pickup_preflight=None, trace_id=None, schedule_trace_id=None) -> dict:
+    import re
+    for correlation in (trace_id, schedule_trace_id):
+        if correlation is not None and (type(correlation) is not str or not re.fullmatch(r"[0-9a-f]{32}", correlation)):
+            raise ValueError("invalid_trace_id")
     if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
     if not isinstance(at, str):
@@ -145,6 +149,10 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         executable = _launch_prerequisites()
         request_record = {"issue": ref, "at": at, "state": "requested",
                           "source": source, "trigger": trigger, "submitted_at": timestamp()}
+        if trace_id:
+            request_record["submission_trace_id"] = trace_id
+        if schedule_trace_id:
+            request_record["schedule_trace_id"] = schedule_trace_id
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(request_record, handle)
