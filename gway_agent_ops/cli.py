@@ -132,6 +132,7 @@ def build_parser():
     spare.add_argument("--task-minutes", type=float)
     spare.add_argument("--weekly-reserve", type=float, default=10)
     spare.add_argument("--five-hour-reserve", type=float, default=20)
+    spare.add_argument("--profile", type=Path, help="Private JSON calibration profile")
     spare.add_argument("--json", action="store_true")
     sub.add_parser("pickup-status", help="Read automatic pickup activation and durable assignments").add_argument("--json", action="store_true")
     recurring = sub.add_parser("schedule-recurring",
@@ -185,12 +186,26 @@ def main(argv=None):
         from .pickup_budget import read_live_budgets
         from .spare_budget import estimate
         try:
-            data = estimate(read_live_budgets(), now=datetime.now(timezone.utc),
-                normal_weekly_per_hour=args.normal_weekly_per_hour,
+            import json
+            inputs = dict(normal_weekly_per_hour=args.normal_weekly_per_hour,
                 task_weekly_percent=args.task_weekly_percent,
                 task_five_hour_percent=args.task_five_hour_percent,
                 task_minutes=args.task_minutes, weekly_reserve=args.weekly_reserve,
                 five_hour_reserve=args.five_hour_reserve)
+            if args.profile:
+                from .environment import _regular_private_file
+                _regular_private_file(args.profile)
+                if args.profile.stat().st_size > 4096:
+                    raise ValueError("profile_too_large")
+                profile = json.loads(args.profile.read_text(encoding="utf-8"))
+                required = {"normal_weekly_per_hour", "task_weekly_percent", "task_five_hour_percent", "task_minutes", "weekly_reserve", "five_hour_reserve"}
+                if not isinstance(profile, dict) or set(profile) != required:
+                    raise ValueError("invalid_profile")
+                if any(value is not None for value in (args.normal_weekly_per_hour, args.task_weekly_percent, args.task_five_hour_percent, args.task_minutes)) or args.weekly_reserve != 10 or args.five_hour_reserve != 20:
+                    raise ValueError("ambiguous_calibration")
+                inputs = profile
+            data = estimate(read_live_budgets(), now=datetime.now(timezone.utc),
+                            **inputs)
             result, code = envelope(args.command, "ok", data=data), 0
         except (OSError, ValueError, RuntimeError, KeyError, TypeError, OverflowError):
             result, code = envelope(args.command, "error", error={"code": "spare_budget_unavailable"}), 1

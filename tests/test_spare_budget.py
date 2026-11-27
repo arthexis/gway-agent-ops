@@ -4,6 +4,8 @@ from unittest.mock import patch
 from contextlib import redirect_stdout
 from io import StringIO
 import json
+import tempfile
+from pathlib import Path
 
 from gway_agent_ops.spare_budget import estimate
 
@@ -76,6 +78,22 @@ class SpareBudgetTests(unittest.TestCase):
         data = json.loads(output.getvalue())["data"]
         self.assertFalse(data["spare"])
         self.assertEqual(data["reason"], "budget_unknown")
+
+    def test_profile_is_loaded_and_conflicting_flags_rejected(self):
+        from gway_agent_ops.cli import main
+        profile = {**CALIBRATION, "weekly_reserve": 10, "five_hour_reserve": 20}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "profile.json"
+            path.write_text(json.dumps(profile))
+            path.chmod(0o600)
+            output = StringIO()
+            with patch("gway_agent_ops.pickup_budget.read_live_budgets", return_value=budget()), \
+                 patch("gway_agent_ops.cli.load_runtime_environment"), \
+                 patch("gway_agent_ops.spare_budget.estimate", return_value={"spare": True}) as calc, \
+                 redirect_stdout(output):
+                self.assertEqual(main(["spare-budget", "--profile", str(path), "--json"]), 0)
+                self.assertEqual(calc.call_args.kwargs["task_minutes"], 30)
+                self.assertEqual(main(["spare-budget", "--profile", str(path), "--task-minutes", "20", "--json"]), 1)
 
 
 if __name__ == "__main__":
