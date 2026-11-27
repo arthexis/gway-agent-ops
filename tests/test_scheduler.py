@@ -459,3 +459,24 @@ def test_revoked_deferred_schedule_never_launches(ledger):
     outcome = scheduler.tick(ledger_path=ledger, now=due + timedelta(minutes=5),
                              resolver=trusted, submitter=forbid)
     assert outcome["results"][0]["receipt"]["code"] == "schedule_approval_revoked"
+
+
+def test_stale_positive_quota_never_dispatches(ledger):
+    due = NOW + timedelta(hours=1)
+    scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    stale = _budget()
+    stale["five_hour"]["observed_at"] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    result = scheduler.tick(ledger_path=ledger, now=due, resolver=trusted,
+                            budget_reader=lambda: stale,
+                            submitter=lambda *_a, **_k: pytest.fail("stale quota dispatched"))
+    assert result["results"][0]["receipt"] == {"code": "quota_deferred", "reason": "budget_stale"}
+
+
+def test_quota_probe_failure_is_deferred(ledger):
+    scheduler.create(REF, DUE, ledger_path=ledger, now=NOW, resolver=trusted)
+    def unavailable():
+        raise OSError("private details not exposed")
+    result = scheduler.tick(ledger_path=ledger, now=NOW + timedelta(hours=1),
+                            resolver=trusted, budget_reader=unavailable,
+                            submitter=lambda *_a, **_k: pytest.fail("failed quota probe dispatched"))
+    assert result["results"][0]["receipt"] == {"code": "quota_deferred", "reason": "budget_unknown"}
