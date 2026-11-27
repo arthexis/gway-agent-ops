@@ -61,6 +61,10 @@ def build_parser():
     recover_parser.add_argument("ref")
     recover_parser.add_argument("--at", required=True)
     recover_parser.add_argument("--json", action="store_true")
+    coordination = sub.add_parser("coordination-reconcile", help="Reconcile an exact terminal shared reservation; never execute")
+    coordination.add_argument("ref")
+    coordination.add_argument("--at", required=True)
+    coordination.add_argument("--json", action="store_true")
     preview_parser = sub.add_parser("preview", help="Read the trusted issue execution prompt without dispatch")
     preview_parser.add_argument("ref")
     preview_parser.add_argument("--json", action="store_true")
@@ -418,6 +422,8 @@ def main(argv=None):
             data["admission"] = admission
             from .pickup_activation import status as pickup_status
             data["pickup"] = pickup_status()
+            from .coordination import coordination_status
+            data["coordination"] = coordination_status()
             result, code = envelope("status", "ok", data=data), 0
         except (ValueError, OSError, KeyError, TypeError):
             result, code = envelope("status", "error", error={
@@ -435,6 +441,17 @@ def main(argv=None):
                 "code": "release_unavailable", "message": "Cannot safely release request"}), 1
         print(json_line(result) if args.json else
               (result["data"]["state"] if code == 0 else "Release unavailable"))
+        return code
+    if args.command == "coordination-reconcile":
+        from .coordination import reconcile_terminal
+        try:
+            data = reconcile_terminal(args.ref, args.at)
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (ValueError, OSError, RuntimeError, TypeError, KeyError):
+            result, code = envelope(args.command, "error", error={"code": "coordination_unavailable",
+                "message": "Shared reservation could not be safely reconciled"}), 1
+        print(json_line(result) if args.json else
+              (data["state"] if code == 0 else "Coordination reconciliation unavailable"))
         return code
     if args.command == "recover-direct":
         from .direct_recovery import recover_direct
