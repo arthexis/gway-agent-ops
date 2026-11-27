@@ -149,9 +149,11 @@ def recover_direct(ref: str, at: str, *, state_dir: Path | None = None,
             if len(accepted) != 1:
                 raise ValueError("direct_acceptance_unknown")
             state = observe(ref, at, state_dir=root)["state"]
-            if state in TERMINAL:
+            claim = accepted[0].get("coordination_claim")
+            retry_shared_release = state == "interrupted" and claim is not None
+            if state in TERMINAL and not retry_shared_release:
                 return {"issue": ref, "at": at, "state": "already_terminal"}
-            if state != "accepted":
+            if state != "accepted" and not retry_shared_release:
                 raise ValueError("direct_execution_state_unverified")
             supervisor = accepted[0].get("direct_supervisor")
             if type(supervisor) is not dict or set(supervisor) != {
@@ -169,8 +171,13 @@ def recover_direct(ref: str, at: str, *, state_dir: Path | None = None,
             # Codex unit, NOT a claim that separate administrative jobs ended.
             # Journal uncertainty before opening the next admission.
             from .reporting import enqueue
-            enqueue(ref, at, state_dir=root, status="interrupted")
-            return {"issue": ref, "at": at, "state": "interrupted"}
+            if not retry_shared_release:
+                enqueue(ref, at, state_dir=root, status="interrupted")
+            result = {"issue": ref, "at": at, "state": "interrupted"}
+            if claim is not None:
+                from .coordination import release_if_configured
+                result["coordination_released"] = release_if_configured(ref, at, claim)
+            return result
         finally:
             os.close(execution)
     finally:
