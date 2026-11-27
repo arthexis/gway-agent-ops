@@ -88,7 +88,8 @@ def _outstanding_request(requests: Path, state_dir: Path, current: str) -> str |
 
 def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = None,
            state_dir: Path | None = None, runner=subprocess.run,
-           source: str = "direct-cli", trigger: str = "cli-submit") -> dict:
+           source: str = "direct-cli", trigger: str = "cli-submit",
+           pickup_preflight=None) -> dict:
     if not isinstance(ref, str) or not ISSUE.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
     if not isinstance(at, str):
@@ -136,7 +137,11 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
             return {"issue": ref, "at": at, "state": "busy",
                     "reason": "repository_active", "active_issue": same_repo[0]}
         # Apply the existing GitHub trust gate before creating any work.
-        resolve(ref)
+        fresh = resolve(ref)
+        if pickup_preflight is not None:
+            reason = pickup_preflight(fresh, root)
+            if reason is not None:
+                return {"issue": ref, "at": at, "state": reason}
         executable = _launch_prerequisites()
         request_record = {"issue": ref, "at": at, "state": "requested",
                           "source": source, "trigger": trigger}
