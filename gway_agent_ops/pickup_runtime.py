@@ -7,6 +7,7 @@ reassignment remains fail-closed; general activation awaits fleet acceptance.
 from datetime import datetime, timezone
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 from . import pickup_store as store
@@ -84,10 +85,14 @@ def _overlap(ref, assigned, root, path):
     if accepted.is_symlink() or requests.is_symlink():
         raise ValueError("unsafe_dispatch_history")
     if accepted.exists():
+        if accepted.stat().st_size > 4 * 1024 * 1024:
+            raise ValueError("pickup_history_limit")
         records.extend(json.loads(line) for line in accepted.read_text(encoding="utf-8").splitlines())
     if requests.exists():
-        for entry in requests.glob("*.json"):
-            if entry.is_symlink():
+        for i, entry in enumerate(requests.glob("*.json")):
+            if i >= 1000:
+                raise ValueError("pickup_history_limit")
+            if entry.is_symlink() or entry.stat().st_size > 16384:
                 raise ValueError("unsafe_dispatch_history")
             records.append(json.loads(entry.read_text(encoding="utf-8")))
     for record in records:
@@ -98,7 +103,6 @@ def _overlap(ref, assigned, root, path):
             return "already_handled"
     # Preserve explicitly approved work. Conservative exclusion of any active
     # recurring policy in this repository avoids selector/claim races.
-    import sqlite3
     from urllib.parse import quote
     ledger = ledger_path(path)
     # Claim already initialized the private ledger. Read-only connection avoids
@@ -145,7 +149,7 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
                     and evidence.get("trigger") == TRIGGER):
                 store.reconcile(row["issue"], row["node"], row["generation"],
                                 row["dispatch_at"], evidence, path=path, now=clock())
-        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, sqlite3.Error):
             pass
     rows = store.snapshot(path=path)
     if mode == "enabled":
@@ -209,7 +213,10 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
     def preflight(fresh, root):
         if config_reader() != config:
             return "assignment_changed"
-        current, latest = _identity(pinned, fresh, events_reader(ref))
+        # Fetch events and then refresh current labels again under the local
+        # submission gate. GitHub itself has no atomic external claim API.
+        latest_events = events_reader(ref)
+        current, latest = _identity(pinned, resolver(ref), latest_events)
         if current != "eligible" or latest != assigned:
             return "on_hold" if current == "on_hold" else "assignment_changed"
         if budget_decision(budget,now=clock()) != "eligible":
