@@ -18,8 +18,8 @@ import stat
 
 from .dispatch import DEFAULT_STATE, ISSUE, Busy, timestamp, _private_directory
 
-CONFIG = Path("/etc/gway-mcp-providers/agentops.coordination.json")
-CANARY_CONFIG = Path("/etc/gway-mcp-providers/agentops.coordination-canary.json")
+CONFIG = Path("/etc/gway-agent-ops/coordination.json")
+CANARY_CONFIG = Path("/etc/gway-agent-ops/coordination-canary.json")
 CANARY_ROOT = DEFAULT_STATE.parent/"coordination-canary"
 HEX = re.compile(r"[a-f0-9]{64}\Z")
 TOKEN = re.compile(r"[a-f0-9]{32}\Z")

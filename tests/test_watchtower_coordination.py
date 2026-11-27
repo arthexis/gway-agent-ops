@@ -148,3 +148,9 @@ def test_canary_uses_separate_mailbox_and_only_synthetic_refs(tmp_path,monkeypat
     assert c.canary("status")["intents"][0]["state"]=="released"
     assert c.configured(tmp_path/"production") is None
     assert not (tmp_path/"production").exists()
+
+
+def test_coordination_configuration_is_outside_provider_manifest_directory():
+    assert c.CONFIG.parent == c.CANARY_CONFIG.parent == Path("/etc/gway-agent-ops")
+    assert c.CONFIG.name == "coordination.json"
+    assert c.CANARY_CONFIG.name == "coordination-canary.json"

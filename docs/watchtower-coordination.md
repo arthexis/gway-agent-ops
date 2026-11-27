@@ -21,7 +21,7 @@ never-launched granted identity; this records a release intent, not an
 assertion that Watchtower has acknowledged it. The existing verified
 systemd recovery paths are preserved. No TTL or automatic expiration.
 
-Root-owned /etc/gway-mcp-providers/agentops.coordination.json has schema 1,
+Root-owned /etc/gway-agent-ops/coordination.json has schema 1,
 epoch (32 lowercase hex), members (exact enrolled nodes), and
 general_pickup_accepted (false until separately accepted). Absence means
 legacy compatibility only before cutover. Removing config with an existing
@@ -30,7 +30,7 @@ have the new receiver/provider/CLI, workers and schedules reconciled, a
 seeded central ledger and independent acceptance. Do not enable general
 pickup in this PR.
 
-A separately provisioned root-owned agentops.coordination-canary.json
+A separately provisioned root-owned /etc/gway-agent-ops/coordination-canary.json
 with a different epoch and false acceptance uses the fixed private
 coordination-canary mailbox, never an actual dispatch path. This permits
 two-node transport acceptance without Codex or production reservations.
