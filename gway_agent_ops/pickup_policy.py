@@ -12,6 +12,7 @@ import re
 NODE = re.compile(r"gway-[0-9]{3}", re.ASCII)
 HOLD = "on-hold"
 OWNER = "arthexis"
+OWNER_ID = 780437
 
 
 def _instant(value):
@@ -66,17 +67,19 @@ def assignment(issue, node, events, *, approved_actors=(OWNER,)):
                 raise ValueError("invalid_event_id")
             seen.add(event_id)
             actor = event["actor"]["login"]
-            if not isinstance(actor, str) or not actor:
+            actor_id = event["actor"].get("id")
+            if not isinstance(actor, str) or not actor or type(actor_id) is not int or actor_id <= 0:
                 raise ValueError("invalid_actor")
-            matches.append((_instant(event["created_at"]), event_id, event["event"], actor, label))
+            matches.append((_instant(event["created_at"]), event_id, event["event"], actor, label, actor_id))
     except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return "unverified_assignment", None
     if not matches:
         return "unverified_assignment", None
-    _, event_id, action, actor, label = max(matches)
+    _, event_id, action, actor, label, actor_id = max(matches)
     if action != "labeled" or label != node:
         return "unverified_assignment", None
-    if actor.casefold() not in {x.casefold() for x in approved_actors}:
+    if (actor.casefold() != OWNER or actor_id != OWNER_ID
+            or actor.casefold() not in {x.casefold() for x in approved_actors}):
         return "unauthorized_assignment", None
     return "eligible", str(event_id)
 
