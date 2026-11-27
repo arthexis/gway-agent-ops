@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from .dispatch import DEFAULT_STATE, _private_directory
+from .dispatch import DEFAULT_STATE, _private_directory, timestamp
 
 ISSUE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$")
 
@@ -65,7 +65,8 @@ def _validate_report(record: dict, issue: str, at: str, *,
 def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
             status: str = "interrupted", exit_code: int | None = None,
             audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None,
-            findings: dict | None = None, findings_state: str | None = None) -> dict:
+            findings: dict | None = None, findings_state: str | None = None,
+            execution_started_at: str | None = None) -> dict:
     """Persist sanitized report prior to attempting network delivery."""
     root = Path(state_dir or DEFAULT_STATE)
     _private_directory(root)
@@ -85,7 +86,9 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
     # Terminal applies to Codex only, not independent host effects.
     record = {"issue": issue, "at": at, "status": status, "exit_code": exit_code,
               "admin_work_state": "not_attested",
-              "marker": "agent-dispatch:" + identity}
+              "marker": "agent-dispatch:" + identity, "terminal_recorded_at": timestamp()}
+    if execution_started_at is not None:
+        record["execution_started_at"] = timestamp(execution_started_at)
     if audit:
         from .audit_receipt import validate
         allowed = ("receipt_valid", "receipt_missing", "receipt_invalid",
@@ -292,6 +295,9 @@ def flush(*, state_dir: Path | None = None, runner=subprocess.run,
                              "audit": record.get("audit", False), "receipt_state": record.get("receipt_state"),
                              "receipt": record.get("receipt"),
                              "findings_state": record.get("findings_state"),
+                             "execution_started_at": record.get("execution_started_at"),
+                             "terminal_recorded_at": record.get("terminal_recorded_at"),
+                             "delivered_at": timestamp(),
                              "admin_work_state": record.get("admin_work_state", "not_attested")})
                 path.unlink()
                 sent += 1

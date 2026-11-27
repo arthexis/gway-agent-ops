@@ -18,6 +18,8 @@ from pathlib import Path
 
 from .dispatch import ISSUE, timestamp
 from .task_ledger import TaskLedger
+from .pickup_budget import read_live_budgets
+from .pickup_policy import budget_decision
 
 HORIZON = timedelta(days=90)
 STATES = ("scheduled", "cancelled", "claimed", "blocked", "launch_unconfirmed",
@@ -25,6 +27,9 @@ STATES = ("scheduled", "cancelled", "claimed", "blocked", "launch_unconfirmed",
 DEFAULT_LEDGER = Path.home() / ".local/state/gway-agent-ops/tasks.sqlite3"
 MAX_BUSY_RETRIES = 6
 RETRY_DELAY = timedelta(minutes=2)
+QUOTA_RETRY_DELAY = timedelta(minutes=5)
+QUOTA_RETRY_HORIZON = timedelta(hours=24)
+QUOTA_REASONS = frozenset({'budget_unknown', 'budget_stale', 'budget_exhausted'})
 
 
 def ledger_path(path=None):
@@ -111,7 +116,10 @@ def _ensure(db):
     names = {item[1] for item in db.execute("PRAGMA table_info(schedules)")}
     for name, ddl in (("approval_event_id", "INTEGER NOT NULL DEFAULT 0"),
                       ("attempts", "INTEGER NOT NULL DEFAULT 0"),
-                      ("next_attempt_at", "TEXT")):
+                      ("next_attempt_at", "TEXT"),
+                      ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
+                      ("first_deferred_at", "TEXT"),
+                      ("last_attempt_at", "TEXT")):
         if name not in names:
             db.execute("ALTER TABLE schedules ADD COLUMN " + name + " " + ddl)
     db.execute("CREATE INDEX IF NOT EXISTS schedules_due ON schedules(state,run_at)")
@@ -206,6 +214,9 @@ def inspect(schedule_id, *, ledger_path=None, observer=None):
         if state in ("requested", "launch_unconfirmed", "provisioning", "accepted", "finished",
                      "codex_failed", "interrupted", "released", "preacceptance_failed", "unknown"):
             return {**record, "execution_state": state,
+                    **{key: result[key] for key in ("source", "trigger", "submitted_at",
+                       "accepted_at", "execution_started_at", "terminal_recorded_at", "delivered_at")
+                       if isinstance(result.get(key), str)},
                     "execution_terminal": state in
                     ("finished", "codex_failed", "interrupted", "released", "preacceptance_failed")}
     except (ValueError, OSError, KeyError, TypeError):
@@ -233,11 +244,12 @@ def cancel(schedule_id, *, ledger_path=None):
         return _row(db, schedule_id)
 
 
-def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10):
+def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, budget_reader=None, limit=10):
     """Explicit scheduler-only tick. Claim-before-I/O enforces at-most-once.
 
-    Definitive busy outcomes defer within a bounded retry budget; ambiguous
-    launches and interrupted claims never retry automatically.
+    Definitive busy outcomes and unavailable/stale/exhausted quota defer
+    within bounded retry policies; ambiguous launches and interrupted claims
+    never retry automatically.
     """
     from .nonblocking import submit
     if type(limit) is not int or not 1 <= limit <= 100:
@@ -248,6 +260,7 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
     cutoff = now.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     path = globals()["ledger_path"](ledger_path)
     outcomes = []
+    budgets = None
     for _ in range(limit):
         with TaskLedger(path) as ledger:
             db = ledger.db
@@ -274,9 +287,9 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
                     outcomes.append({"schedule_id": record["schedule_id"], "state": "blocked",
                                      "receipt": {"code": "schedule_approval_revoked"}})
                     continue
-                db.execute("""UPDATE schedules SET state='claimed',updated_at=?
+                db.execute("""UPDATE schedules SET state='claimed',last_attempt_at=?,updated_at=?
                     WHERE schedule_id=? AND state='scheduled'""",
-                    (_utc_now(), record["schedule_id"]))
+                    (_utc_now(), _utc_now(), record["schedule_id"]))
                 db.execute("COMMIT")
             except BaseException:
                 db.execute("ROLLBACK")
@@ -285,6 +298,15 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
         state, receipt = "blocked", {"code": "preflight_unavailable"}
         try:
             _validate_issue(record["issue"], resolver)
+            # Probe independently of previous Codex session activity. No
+            # inference from a reset time or missing session snapshot.
+            if budgets is None:
+                try:
+                    budgets = (budget_reader or read_live_budgets)()
+                except (OSError, ValueError, RuntimeError):
+                    budgets = {}
+                if not isinstance(budgets, dict):
+                    budgets = {}
             # The authorization linearization point is this SQLite writer
             # transaction. Hold BEGIN IMMEDIATE through dispatch submission:
             # any concurrent veto must commit before this lock (and therefore
@@ -297,9 +319,16 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
                 try:
                     _approved(authority.db, record["issue"],
                               expected=record["approval_event_id"])
-                    result = (submitter or submit)(
-                        record["issue"], record["dispatch_at"],
-                        source="scheduled", trigger="scheduler-due")
+                    quota = budget_decision(budgets, now=datetime.now(timezone.utc))
+                    expiry = datetime.fromisoformat(record["run_at"].replace("Z", "+00:00")) + QUOTA_RETRY_HORIZON
+                    if record["quota_attempts"] and now >= expiry:
+                        result = {"state": "quota_retry_expired"}
+                    elif quota != "eligible":
+                        result = {"state": quota}
+                    else:
+                        result = (submitter or submit)(
+                            record["issue"], record["dispatch_at"],
+                            source="scheduled", trigger="scheduler-due")
                     authority.db.execute("COMMIT")
                 except BaseException:
                     authority.db.execute("ROLLBACK")
@@ -323,7 +352,7 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
                 state = "blocked"
             receipt = {"code": raw if raw in
                 ("requested","already_requested","launch_unconfirmed","busy",
-                 "identity_owned_by_other_submit") else "blocked"}
+                 "identity_owned_by_other_submit", "quota_retry_expired") or raw in QUOTA_REASONS else "blocked"}
         except (ValueError, OSError, RuntimeError) as exc:
             # No exception text in receipts: it can contain private data.
             receipt = {"code": "preflight_unavailable"}
@@ -334,7 +363,23 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
             try:
                 # A definitive busy response means submit wrote no durable request
                 # marker; it can be deferred without re-launch ambiguity.
-                if receipt["code"] == "busy" and record["attempts"] < MAX_BUSY_RETRIES:
+                if receipt["code"] in QUOTA_REASONS:
+                    expiry = datetime.fromisoformat(record["run_at"].replace("Z", "+00:00")) + QUOTA_RETRY_HORIZON
+                    if now < expiry:
+                        next_at = min(now + QUOTA_RETRY_DELAY, expiry).astimezone(timezone.utc).isoformat(
+                            timespec="microseconds").replace("+00:00", "Z")
+                        receipt = {"code": "quota_deferred", "reason": receipt["code"]}
+                        db.execute("""UPDATE schedules SET state='scheduled',quota_attempts=quota_attempts+1,
+                            first_deferred_at=COALESCE(first_deferred_at,?),next_attempt_at=?,receipt=?,updated_at=?
+                            WHERE schedule_id=? AND state='claimed'""",
+                            (_utc_now(), next_at, json.dumps(receipt), _utc_now(), record["schedule_id"]))
+                        state = "scheduled"
+                    else:
+                        state, receipt = "blocked", {"code": "quota_retry_expired"}
+                        db.execute("""UPDATE schedules SET state=?,receipt=?,next_attempt_at=NULL,updated_at=?
+                            WHERE schedule_id=? AND state='claimed'""",
+                            (state, json.dumps(receipt), _utc_now(), record["schedule_id"]))
+                elif receipt["code"] == "busy" and record["attempts"] < MAX_BUSY_RETRIES:
                     next_at = (now.astimezone(timezone.utc) + RETRY_DELAY).isoformat(
                         timespec="microseconds").replace("+00:00", "Z")
                     db.execute("""UPDATE schedules SET state='scheduled',attempts=attempts+1,
@@ -342,7 +387,7 @@ def tick(*, ledger_path=None, now=None, resolver=None, submitter=None, limit=10)
                         (next_at, json.dumps({"code": "busy_deferred"}), _utc_now(), record["schedule_id"]))
                     state, receipt = "scheduled", {"code": "busy_deferred"}
                 else:
-                    db.execute("""UPDATE schedules SET state=?,receipt=?,updated_at=?
+                    db.execute("""UPDATE schedules SET state=?,receipt=?,next_attempt_at=NULL,updated_at=?
                     WHERE schedule_id=? AND state='claimed'""",
                         (state, json.dumps(receipt), _utc_now(), record["schedule_id"]))
                 db.execute("COMMIT")

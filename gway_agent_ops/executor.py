@@ -97,6 +97,7 @@ def _execute(ref: str, *, repo: str | None = None, at: str | None = None,
         # Optional, private heartbeat does not alter the subprocess, locks,
         # output capture, timeout handling or durable terminal authority.
         with ProgressRecorder(key, accepted["at"], state_dir=state_dir) as progress:
+            execution_started_at = timestamp()
             progress.mark("executing")
             try:
                 process = runner(
@@ -120,6 +121,7 @@ def _execute(ref: str, *, repo: str | None = None, at: str | None = None,
             enqueue(key, accepted["at"], state_dir=state_dir,
                     status="finished" if process.returncode == 0 else "codex_failed",
                     exit_code=process.returncode, findings=findings,
+                    execution_started_at=execution_started_at,
                     findings_state=("validated" if findings else "missing_or_invalid")
                     if process.returncode == 0 else None)
             progress.terminal_report_persisted()

@@ -51,6 +51,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
     if not ledger.exists():
         return _pending_request(root, ref, at)
     accepted = False
+    admission = {}
     for line in ledger.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         if (type(row) is not dict
@@ -59,6 +60,8 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             raise ValueError("invalid acceptance journal")
         if row["issue"] == ref and row["at"] == at:
             accepted = True
+            if isinstance(row.get("accepted_at"), str):
+                admission = {"accepted_at": row["accepted_at"]}
     if not accepted:
         return _pending_request(root, ref, at)
     key = _key(ref, at) + ".json"
@@ -77,7 +80,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 if state not in ("finished", "codex_failed", "interrupted"):
                     return {"issue": ref, "at": at, "state": "reported_unknown", **_provenance(root, ref, at)}
                 return {"issue": ref, "at": at, "state": state,
-                        "reported": True, "execution_terminal": True,
+                        "reported": True, "execution_terminal": True, **admission, **_report_times(report),
                         "admin_work_state": report.get("admin_work_state", "not_attested"),
                         "receipt_state": report.get("receipt_state", "not_requested"),
                         "receipt_retained": report.get("receipt_state") == "receipt_valid",
@@ -88,14 +91,14 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
             report = _validate_report(
                 json.loads(path.read_text(encoding="utf-8")), ref, at)
             return {"issue": ref, "at": at, "state": report["status"],
-                    "execution_terminal": True,
+                    "execution_terminal": True, **admission, **_report_times(report),
                     "admin_work_state": report.get("admin_work_state", "not_attested"),
                     "receipt_state": report.get("receipt_state", "not_requested"),
                     "receipt_retained": report.get("receipt_state") == "receipt_valid",
                     "findings_state": report.get("findings_state"),
                     "delivery_attempted": report.get("delivery_attempted", False), "delivery_confirmed": False,
                     "exit_code": report.get("exit_code"), **_provenance(root, ref, at)}
-    result = {"issue": ref, "at": at, "state": "accepted",
+    result = {"issue": ref, "at": at, "state": "accepted", **admission,
               **_provenance(root, ref, at)}
     progress = read_progress(ref, at, state_dir=root)
     if progress is not None:
@@ -129,5 +132,10 @@ def _provenance(root: Path, ref: str, at: str) -> dict:
     record = json.loads(path.read_text(encoding="utf-8"))
     if record.get("issue") != ref or record.get("at") != at:
         return {}
-    return {key: record[key] for key in ("source", "trigger")
+    return {key: record[key] for key in ("source", "trigger", "submitted_at")
+            if isinstance(record.get(key), str)}
+
+
+def _report_times(record: dict) -> dict:
+    return {key: record[key] for key in ("execution_started_at", "terminal_recorded_at", "delivered_at")
             if isinstance(record.get(key), str)}

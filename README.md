@@ -395,9 +395,11 @@ Only timezone-qualified ISO-8601 instants within 90 days are accepted.
 dispatch identity `--at`. Actual start may be later if unavailable.
 At due time, a scheduler tick records a durable `claimed` state **before**
 any external call, revalidates live issue trust, and submits through the
-existing one-shot nonblocking dispatcher. An interrupted claim, revoked
-trust, busy slot or uncertain launch is **not automatically retried**; inspect
-receipts before scheduling a new invocation. Cancellation only applies
+existing one-shot nonblocking dispatcher only after a fresh, positive
+observation of both Codex quota windows. Interrupted claims, revoked trust
+and uncertain launches are **not automatically retried**; inspect receipts
+before scheduling a new invocation. Definitive busy and quota deferrals
+are retried as described below. Cancellation only applies
 before claim and cannot stop Codex after dispatch.
 
 **Deployment gate:** Do not enable `schedule-tick` automatically from the
@@ -440,8 +442,24 @@ Use the canonical `GWAY_AGENT_LEDGER_PATH` when configured. Schedule list/get
 open the ledger read-only and do not create files, run DDL, or change its
 mode; schedule creation and scheduler ticks own schema migrations.
 The scheduler can defer a definitive `busy` response for two minutes, at most
-six times. It never retries unknown/ambiguous launches or claims left
-unresolved by a crash. Operator reconciliation remains necessary.
+six times. Missing, stale or exhausted quota is a pre-dispatch deferral,
+not a dispatch failure: the native scheduler uses the existing app-server
+rate-limit probe, preserves the approved identity in SQLite and rechecks
+no sooner than five minutes, for up to 24 hours after the due instant.
+The ledger exposes the reason, first deferral, retry count and next attempt;
+expiry blocks the schedule. Both windows must be freshly observed and
+positive, including after a reset. It never retries unknown/ambiguous
+launches or claims left unresolved by a crash. Operator reconciliation
+remains necessary.
+
+Use the native schedule for future one-shots rather than a chat automation
+that calls submit once and disappears after a blocked preflight. The frozen
+identity is not the submission time. New observations preserve actual
+submitted, accepted, execution started, terminal-recorded and delivered
+UTC timestamps where available, plus source and trigger. Existing records
+without those fields remain unknown; no historical timestamps are invented.
+A native scheduler launch is source=scheduled/trigger=scheduler-due; an
+explicit federated submit is source=remote-api/trigger=mcp-submit.
 
 **Federated OAuth admission:** the MCP write-tool annotations are only
 classification metadata, **not an authorization check by themselves**.
