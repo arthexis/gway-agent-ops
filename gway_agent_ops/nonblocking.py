@@ -16,7 +16,7 @@ import shutil
 import stat
 import sys
 
-from .dispatch import DEFAULT_STATE, ISSUE, _private_directory, timestamp
+from .dispatch import DEFAULT_STATE, ISSUE, Busy, _private_directory, timestamp
 from .github_issues import resolve
 from .observation import observe
 from .runtime import _same_user_runtime_dir, systemd_user_environment
@@ -147,8 +147,16 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
             if reason is not None:
                 return {"issue": ref, "at": at, "state": reason}
         executable = _launch_prerequisites()
+        from .coordination import reserve_submission
+        try:
+            claim = reserve_submission(ref, at)
+        except Busy:
+            return {"issue": ref, "at": at, "state": "busy",
+                    "reason": "shared_repository_or_identity_reserved"}
         request_record = {"issue": ref, "at": at, "state": "requested",
                           "source": source, "trigger": trigger, "submitted_at": timestamp()}
+        if claim is not None:
+            request_record["coordination_claim"] = claim
         if trace_id:
             request_record["submission_trace_id"] = trace_id
         if schedule_trace_id:
@@ -359,7 +367,13 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             # Cleanup follows durable release; never changes execution identity.
             from .progress import discard_progress
             discard_progress(ref, at, state_dir=root)
-            return {"issue": ref, "at": at, "state": "released"}
+            from .coordination import release_if_configured
+            claim = record.get("coordination_claim")
+            settled = release_if_configured(ref, at, claim)
+            result = {"issue": ref, "at": at, "state": "released"}
+            if claim is not None:
+                result["coordination_released"] = settled
+            return result
         finally:
             os.close(execution_fd)
     finally:
