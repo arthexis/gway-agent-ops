@@ -35,7 +35,8 @@ def assignment(issue, node, events, *, approved_actors=(OWNER,)):
     if not isinstance(node, str) or not NODE.fullmatch(node):
         return "invalid_node", None
     if (not isinstance(issue, dict) or issue.get("state") != "open"
-            or issue.get("creator") != OWNER or "pull_request" in issue):
+            or issue.get("creator") != OWNER or issue.get("creator_id") != OWNER_ID
+            or "pull_request" in issue):
         return "untrusted_issue", None
     labels = issue.get("labels")
     if not isinstance(labels, list) or any(not isinstance(x, str) for x in labels):
