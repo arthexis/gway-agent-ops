@@ -369,10 +369,10 @@ def release(ref: str, at: str, *, state_dir: Path | None = None,
             discard_progress(ref, at, state_dir=root)
             from .coordination import release_if_configured
             claim = record.get("coordination_claim")
-            settled = release_if_configured(ref, at, claim)
+            settled = release_if_configured(ref, at, claim, root=root)
             result = {"issue": ref, "at": at, "state": "released"}
             if claim is not None:
-                result["coordination_released"] = settled
+                result["coordination_release_recorded"] = settled
             return result
         finally:
             os.close(execution_fd)
