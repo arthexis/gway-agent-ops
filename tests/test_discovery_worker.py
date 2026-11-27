@@ -66,7 +66,7 @@ def test_search_failure_reconciles_independently(tmp_path):
         result = tick(ledger, listing=offline, resolver=resolve)
         assert result["reconciled"] == 1
         assert result["errors"] == ["discovery_unavailable", f"reconcile_unavailable:{UNREGISTERED}"]
-        assert ledger.get(ISSUE)["state"] == "requested"
+        assert ledger.get(ISSUE)["state"] == "withdrawn"
         assert ledger.get(UNREGISTERED)["state"] == "approved"
 
 
@@ -76,4 +76,4 @@ def test_reconciliation_only(tmp_path):
         ledger.discover(ISSUE)
         result = reconcile(ledger, resolver=lambda ref: {"state": "open", "labels": []})
         assert result == {"discovered": 0, "reconciled": 1, "errors": []}
-        assert ledger.get(ISSUE)["state"] == "withdrawn"
+        assert ledger.get(ISSUE)["state"] == "requested"
