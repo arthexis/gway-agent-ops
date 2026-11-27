@@ -62,6 +62,8 @@ def build_parser():
     recover_parser.add_argument("--at", required=True)
     recover_parser.add_argument("--json", action="store_true")
     sub.add_parser("coordination-exchange", help=argparse.SUPPRESS)
+    canary = sub.add_parser("coordination-canary", help="Inspect or prepare only the isolated synthetic coordination fixture")
+    canary.add_argument("action", choices=("prepare","retire","replay","status"))
     coordination = sub.add_parser("coordination-reconcile", help="Reconcile an exact terminal shared reservation; never execute")
     coordination.add_argument("ref")
     coordination.add_argument("--at", required=True)
@@ -443,6 +445,14 @@ def main(argv=None):
         print(json_line(result) if args.json else
               (result["data"]["state"] if code == 0 else "Release unavailable"))
         return code
+    if args.command == "coordination-canary":
+        import json
+        from .coordination import canary
+        try:
+            print(json.dumps(canary(args.action),separators=(",", ":")))
+            return 0
+        except (OSError,ValueError,RuntimeError,TypeError,KeyError,sqlite3.Error):
+            return 1
     if args.command == "coordination-exchange":
         # Internal fixed receiver protocol, never a federated tool.
         import json
