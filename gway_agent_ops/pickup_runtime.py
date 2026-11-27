@@ -1,4 +1,4 @@
-"""Guarded native scheduler pickup, initially restricted to a pinned canary.
+"""Guarded native scheduler pickup with a pinned canary and explicit enable gate.
 
 No label writer, new credential, daemon, or execution transport. A candidate
 is only admitted through the existing nonblocking submission gate. Cross-node
@@ -130,15 +130,14 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
          resolver=resolve, events_reader=label_events, budget_reader=read_live_budgets,
          submitter=submit, observer=observe, workspace_check=_workspace,
          maintenance_check=_maintenance, overlap_check=_overlap, clock=_now):
-    """One existing scheduler tick, at most one explicitly pinned assignment."""
+    """One existing scheduler tick, at most one discovered assignment."""
     config = config_reader()
     if config is None:
         return {"mode": "disabled", "processed": 0}
-    ref, node, generation = config["issue"], config["node"], config["generation"]
+    mode, node = config["mode"], config["node"]
     rows = store.snapshot(path=path)
-    for row in rows:
-        if row["state"] not in ("claimed","requested","uncertain"):
-            continue
+    pending = [r for r in rows if r["state"] in ("claimed","requested","uncertain")]
+    for row in pending[:20]:
         try:
             evidence = observer(row["issue"], row["dispatch_at"])
             if (evidence.get("state") in store.TERMINAL
@@ -148,37 +147,69 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
                                 row["dispatch_at"], evidence, path=path, now=clock())
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             pass
-    row = next((r for r in store.snapshot(path=path)
-                if r["issue"].casefold() == ref.casefold() and r["generation"] == generation), None)
-    if row and row["state"] != "deferred":
-        return {"mode":"canary","processed":0,"state":row["state"],"issue":ref}
-    if ref.casefold() not in {r.casefold() for r in candidate_reader(node)}:
-        return {"mode":"canary","processed":0,"state":"not_discovered_or_held","issue":ref}
-    reason, assigned = _identity(config, resolver(ref), events_reader(ref))
+    rows = store.snapshot(path=path)
+    if mode == "enabled":
+        canary = next((r for r in rows if r["node"] == node
+            and r["issue"].casefold() == config["canary_issue"].casefold()
+            and r["generation"] == config["canary_generation"]), None)
+        if not canary or canary["state"] != "terminal" or canary["reason"] != "finished":
+            return {"mode":mode,"processed":0,"state":"canary_not_accepted"}
+        proof = observer(canary["issue"],canary["dispatch_at"])
+        if (proof.get("issue") != canary["issue"] or proof.get("at") != canary["dispatch_at"]
+                or proof.get("source") != SOURCE or proof.get("trigger") != TRIGGER
+                or proof.get("state") != "finished" or proof.get("exit_code") != 0
+                or proof.get("delivery_confirmed") is not True):
+            return {"mode":mode,"processed":0,"state":"canary_not_accepted"}
+    refs = candidate_reader(node)
+    if mode == "canary":
+        ref, generation = config["issue"], config["generation"]
+        # Reconcile and show a terminal canary even if it is no longer labeled.
+        row = next((r for r in rows if r["issue"].casefold() == ref.casefold()
+                    and r["generation"] == generation), None)
+        if row and row["state"] != "deferred":
+            return {"mode":mode,"processed":0,"state":row["state"],"issue":ref}
+        if ref.casefold() not in {r.casefold() for r in refs}:
+            return {"mode":mode,"processed":0,"state":"not_discovered_or_held","issue":ref}
+    else:
+        ref = store.next_candidate(node,refs,path=path)
+        if ref is None:
+            return {"mode":mode,"processed":0,"state":"no_candidates"}
+        generation = None
+    issue, events = resolver(ref), events_reader(ref)
+    if generation is None:
+        reason, generation = assignment(issue,node,events)
+        if reason != "eligible":
+            return {"mode":mode,"processed":0,"state":reason,"issue":ref}
+    pinned = {**config,"issue":ref,"generation":generation}
+    reason, assigned = _identity(pinned, issue, events)
     if reason != "eligible":
-        return {"mode":"canary","processed":0,"state":reason,"issue":ref}
+        return {"mode":mode,"processed":0,"state":reason,"issue":ref}
+    row = next((r for r in rows if r["issue"].casefold() == ref.casefold()
+                and r["generation"] == generation), None)
+    if row and row["state"] != "deferred":
+        return {"mode":mode,"processed":0,"state":row["state"],"issue":ref}
     budget = budget_reader()
     decision = budget_decision(budget, now=clock())
     if decision != "eligible":
         store.defer(ref,node,generation,decision,path=path,now=clock())
-        return {"mode":"canary","processed":0,"state":decision,"issue":ref,
+        return {"mode":mode,"processed":0,"state":decision,"issue":ref,
                 "budget":budget}
     for check, reason in ((maintenance_check, "maintenance"),):
         if check():
             store.defer(ref,node,generation,reason,path=path,now=clock())
-            return {"mode":"canary","processed":0,"state":reason,"issue":ref}
+            return {"mode":mode,"processed":0,"state":reason,"issue":ref}
     if not workspace_check(ref):
         store.defer(ref,node,generation,"workspace_unavailable",path=path,now=clock())
-        return {"mode":"canary","processed":0,"state":"workspace_unavailable","issue":ref}
+        return {"mode":mode,"processed":0,"state":"workspace_unavailable","issue":ref}
     claim = store.claim(ref,node,generation,path=path,now=clock())
     if claim is None:
-        return {"mode":"canary","processed":0,"state":"claim_unavailable","issue":ref}
+        return {"mode":mode,"processed":0,"state":"claim_unavailable","issue":ref}
     at = claim["dispatch_at"]
 
     def preflight(fresh, root):
         if config_reader() != config:
             return "assignment_changed"
-        current, latest = _identity(config, fresh, events_reader(ref))
+        current, latest = _identity(pinned, fresh, events_reader(ref))
         if current != "eligible" or latest != assigned:
             return "on_hold" if current == "on_hold" else "assignment_changed"
         if budget_decision(budget,now=clock()) != "eligible":
@@ -202,5 +233,5 @@ def tick(*, path=None, config_reader=load, candidate_reader=candidates,
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         pass
     row = store.record_submission(ref,node,generation,at,outcome,path=path,now=clock())
-    return {"mode":"canary","processed":int(row["state"] == "requested"),
+    return {"mode":mode,"processed":int(row["state"] == "requested"),
             "state":row["state"],"issue":ref,"dispatch_at":at,"reason":row["reason"]}
