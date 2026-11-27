@@ -144,7 +144,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
                 return {"issue": ref, "at": at, "state": reason}
         executable = _launch_prerequisites()
         request_record = {"issue": ref, "at": at, "state": "requested",
-                          "source": source, "trigger": trigger}
+                          "source": source, "trigger": trigger, "submitted_at": timestamp()}
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(request_record, handle)
