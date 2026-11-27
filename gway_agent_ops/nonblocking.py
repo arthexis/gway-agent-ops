@@ -149,7 +149,7 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         executable = _launch_prerequisites()
         from .coordination import reserve_submission
         try:
-            claim = reserve_submission(ref, at)
+            claim = reserve_submission(ref, at, root=root)
         except Busy:
             return {"issue": ref, "at": at, "state": "busy",
                     "reason": "shared_repository_or_identity_reserved"}
