@@ -137,5 +137,5 @@ def _provenance(root: Path, ref: str, at: str) -> dict:
 
 
 def _report_times(record: dict) -> dict:
-    return {key: record[key] for key in ("terminal_recorded_at", "delivered_at")
+    return {key: record[key] for key in ("execution_started_at", "terminal_recorded_at", "delivered_at")
             if isinstance(record.get(key), str)}
