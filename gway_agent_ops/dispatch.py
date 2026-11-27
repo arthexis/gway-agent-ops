@@ -117,7 +117,13 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                             not in terminal
                             and row["issue"].split("#", 1)[0].casefold() == issue.split("#", 1)[0].casefold()):
                         raise Busy("a previously accepted invocation is unresolved in this repository")
+                from .coordination import reserve_admission
+                from .reporting import _key
+                marker = requests / (_key(issue, at) + ".json")
+                claim = reserve_admission(issue, at, marker=marker)
                 record = {"issue": issue, "at": at, "accepted_at": timestamp()}
+                if claim is not None:
+                    record["coordination_claim"] = claim
                 # A direct CLI worker may have a dedicated, identity-bound
                 # systemd service. Capture provenance before accepting work.
                 # Interactive/legacy CLI calls keep the existing fail-closed
@@ -142,6 +148,17 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
         except Exception:
             pass
         yield record
+        # A context exit alone is not terminal evidence. In particular an
+        # audit timeout records codex_failed with no observed return code.
+        if claim is not None:
+            try:
+                terminal = observe(issue, at, state_dir=directory)
+                if terminal.get("state") in ("finished", "codex_failed") and type(terminal.get("exit_code")) is int:
+                    from .coordination import release_if_configured
+                    release_if_configured(issue, at, claim)
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+                # Preserve the claim on every uncertain path.
+                pass
     finally:
         os.close(descriptor)
         os.close(gate_fd)
