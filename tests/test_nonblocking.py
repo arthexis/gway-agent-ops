@@ -69,6 +69,20 @@ class NonblockingTests(unittest.TestCase):
             self.assertEqual(self.send()["state"], "requested")
         self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "requested")
 
+    def test_automatic_preflight_rejection_never_launches_or_reserves(self):
+        from gway_agent_ops.capacity import locked
+        runner = Mock()
+        def gate(fresh, root):
+            self.assertTrue(locked(root / "requests/submission.lock"))
+            return "on_hold"
+        result = submit(REF, AT, state_dir=self.root, runner=runner,
+                        pickup_preflight=gate)
+        self.assertEqual(result["state"], "on_hold")
+        self.assertEqual(observe(REF, AT, state_dir=self.root)["state"], "unknown")
+        self.assertFalse(list((self.root / "requests").glob("*.json")))
+        runner.assert_not_called()
+        self.assertEqual(self.send()["state"], "requested")
+
     def test_terminal_request_allows_next_issue(self):
         self.send()
         normalized = "2026-10-13T15:00:00.000000Z"
