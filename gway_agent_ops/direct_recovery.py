@@ -176,7 +176,7 @@ def recover_direct(ref: str, at: str, *, state_dir: Path | None = None,
             result = {"issue": ref, "at": at, "state": "interrupted"}
             if claim is not None:
                 from .coordination import release_if_configured
-                result["coordination_released"] = release_if_configured(ref, at, claim)
+                result["coordination_release_recorded"] = release_if_configured(ref, at, claim, root=root)
             return result
         finally:
             os.close(execution)
