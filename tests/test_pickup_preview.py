@@ -8,7 +8,7 @@ def test_read_only_preview_uses_live_budget_and_verified_assignment():
     now = datetime(2026, 11, 27, 8, 0, tzinfo=timezone.utc)
     data = preview(
         node_reader=lambda: "gway-001", candidate_reader=lambda node: [ref],
-        resolver=lambda ref: {"state": "open", "creator": "arthexis", "labels": ["gway-001"]},
+        resolver=lambda ref: {"state": "open", "creator": "arthexis", "creator_id": 780437, "labels": ["gway-001"]},
         events_reader=lambda ref: [{"event": "labeled", "id": 12, "label": {"name": "gway-001"},
                                    "actor": {"login": "arthexis", "id": 780437}, "created_at": now.isoformat()}],
         budget_reader=lambda: None, now=now)
