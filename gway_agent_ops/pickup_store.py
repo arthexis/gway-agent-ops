@@ -165,3 +165,23 @@ def snapshot(*, path=None):
             "SELECT * FROM pickup_assignments ORDER BY updated_at,issue,generation")]
     finally:
         db.close()
+
+
+def next_candidate(node, refs, *, path=None):
+    """Persist bounded round-robin cursor so held/blocked tasks cannot starve others."""
+    if not isinstance(node, str) or not NODE.fullmatch(node):
+        raise ValueError("invalid_node")
+    if len(refs) > 300 or any(not isinstance(ref, str) or not ISSUE.fullmatch(ref) for ref in refs):
+        raise ValueError("invalid_candidates")
+    ordered = sorted(set(refs), key=lambda x: (x.casefold(), x))
+    if not ordered:
+        return None
+    with _transaction(path) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS pickup_scan (
+            node TEXT PRIMARY KEY, last_ref TEXT NOT NULL)""")
+        row = db.execute("SELECT last_ref FROM pickup_scan WHERE node=?", (node,)).fetchone()
+        cursor = row[0].casefold() if row else ""
+        selected = next((ref for ref in ordered if ref.casefold() > cursor), ordered[0])
+        db.execute("""INSERT INTO pickup_scan(node,last_ref) VALUES(?,?)
+            ON CONFLICT(node) DO UPDATE SET last_ref=excluded.last_ref""", (node,selected))
+        return selected
