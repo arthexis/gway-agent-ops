@@ -16,7 +16,7 @@ def setup(tmp_path):
     events = [{"id":12,"event":"labeled","label":{"name":"gway-001"},
                "actor":{"login":"arthexis","id":780437},"created_at":(NOW-timedelta(minutes=1)).isoformat()}]
     def resolve(ref):
-        return {"state":"open","creator":"arthexis","labels":labels[:]}
+        return {"state":"open","creator":"arthexis","creator_id":780437,"labels":labels[:]}
     quota = {"rateLimits": {
         "primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":NOW.timestamp()+3600},
         "secondary":{"usedPercent":30,"windowDurationMins":10080,"resetsAt":NOW.timestamp()+86400}}}
