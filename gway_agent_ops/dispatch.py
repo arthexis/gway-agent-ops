@@ -155,7 +155,7 @@ def admission(issue: str, at: str, *, state_dir: Path | None = None, comment_bas
                 terminal = observe(issue, at, state_dir=directory)
                 if terminal.get("state") in ("finished", "codex_failed") and type(terminal.get("exit_code")) is int:
                     from .coordination import release_if_configured
-                    release_if_configured(issue, at, claim)
+                    release_if_configured(issue, at, claim, root=directory)
             except (OSError, ValueError, RuntimeError, KeyError, TypeError):
                 # Preserve the claim on every uncertain path.
                 pass
