@@ -744,7 +744,8 @@ state, then searches active `arthexis` repositories for open issues and PRs
 untouched for at least three hours. Priority labels influence ranking; within
 each class the most recently updated eligible item is preferred. Hold labels
 exclude candidates. Draft PRs remain eligible for work but are never merged by
-this task. The selected target and budget are fetched again before submission.
+this task. Open items with recently updated cross-referenced work are deferred.
+The selected target and budget are fetched again before submission.
 The agent must inspect current comments and related work, respect owner holds,
 and use an isolated worktree for a PR. It may make local changes and run tests;
 it is instructed not to push, merge, close or deploy.
