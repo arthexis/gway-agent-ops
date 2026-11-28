@@ -66,11 +66,13 @@ def enqueue(issue: str, at: str, *, state_dir: Path | None = None,
             status: str = "interrupted", exit_code: int | None = None,
             audit: bool = False, receipt_state: str | None = None, receipt: dict | None = None,
             findings: dict | None = None, findings_state: str | None = None,
-            execution_started_at: str | None = None) -> dict:
+            execution_started_at: str | None = None, local_only: bool = False) -> dict:
     """Persist sanitized report prior to attempting network delivery."""
     root = Path(state_dir or DEFAULT_STATE)
     _private_directory(root)
-    outbox = root / "outbox"
+    if type(local_only) is not bool:
+        raise ValueError("invalid_report_scope")
+    outbox = root / ("local-reports" if local_only else "outbox")
     _private_directory(outbox)
     identity = _key(issue, at)
     path = outbox / (identity + ".json")

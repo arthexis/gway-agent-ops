@@ -67,7 +67,7 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
     key = _key(ref, at) + ".json"
     # A crash may leave both records after writing the delivered receipt but
     # before unlinking the outbox entry. Durable delivery evidence wins.
-    for folder in ("delivered", "outbox"):
+    for folder in ("delivered", "outbox", "local-reports"):
         path = root / folder / key
         if path.is_symlink():
             raise ValueError("unsafe report path")
@@ -92,6 +92,8 @@ def observe(ref: str, at: str, *, state_dir: Path | None = None) -> dict:
                 json.loads(path.read_text(encoding="utf-8")), ref, at)
             return {"issue": ref, "at": at, "state": report["status"],
                     "execution_terminal": True, **admission, **_report_times(report),
+                    **({"report_scope": "local", "findings": report.get("findings")}
+                       if folder == "local-reports" else {}),
                     "admin_work_state": report.get("admin_work_state", "not_attested"),
                     "receipt_state": report.get("receipt_state", "not_requested"),
                     "receipt_retained": report.get("receipt_state") == "receipt_valid",
