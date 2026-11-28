@@ -140,8 +140,17 @@ def submit(ref: str, at: str, *, allowed_repositories: tuple[str, ...] | None = 
         if same_repo is not None:
             return {"issue": ref, "at": at, "state": "busy",
                     "reason": "repository_active", "active_issue": same_repo[0]}
-        # Apply the existing GitHub trust gate before creating any work.
-        fresh = resolve(ref)
+        # The self-select task has an independently authorized, durable claim;
+        # it may resolve PRs without weakening ordinary issue admission.
+        if source == "self-select" and trigger == "four-hour-budget":
+            from .self_select_store import authorized
+            from .self_select_target import resolve as resolve_target
+            if pickup_preflight is None or not authorized(ref, at):
+                return {"issue": ref, "at": at, "state": "self_select_claim_unavailable"}
+            fresh = resolve_target(ref)
+        else:
+            # Apply the existing GitHub trust gate before creating any work.
+            fresh = resolve(ref)
         if pickup_preflight is not None:
             reason = pickup_preflight(fresh, root)
             if reason is not None:

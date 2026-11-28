@@ -727,3 +727,35 @@ one task fitting before either reset. A new reading is required after each reset
 Concurrent or external use and changing task costs can invalidate the estimate;
 re-read immediately before any separate admission decision. This command does
 not collect history, enforce spending, schedule tasks, or enable pickup.
+
+## Owner-authorized self-selecting task
+
+On gway-001, `agent self-select-create --json` creates this independent schedule
+paused. `agent self-select-resume --json` starts its four-hour cadence; it does
+not run a backlog. `agent self-select-status --json` displays its current claim
+and the private spare-budget calibration. `agent self-select-preview --json`
+performs quota and discovery checks without claiming or launching work.
+`agent self-select-pause --json` stops new scheduled claims; `agent
+self-select-cancel --json` permanently cancels that definition. These controls
+do not interrupt a task already accepted by Agent Ops.
+
+Each due slot checks the calibrated spare budget, local capacity and maintenance
+state, then searches active `arthexis` repositories for open issues and PRs
+untouched for at least three hours. Priority labels influence ranking; within
+each class the most recently updated eligible item is preferred. Hold labels
+exclude candidates. Draft PRs remain eligible for work but are never merged by
+this task. The selected target and budget are fetched again before submission.
+The agent must inspect current comments and related work, respect owner holds,
+and use an isolated worktree for a PR. It may make local changes and run tests;
+it is instructed not to push, merge, close or deploy.
+
+The existing submission and Watchtower reservation gates remain in force. A
+durable claim holds one target and timestamp; a definitive busy response may be
+retried with that same identity, but an uncertain launch is never retried. An
+unresolved claim blocks later slots until reconciliation. Task output is kept
+in the private local Agent Ops report store, not posted to GitHub. Use `agent
+observe OWNER/REPO#NUMBER --at TIMESTAMP --json` with the identity in status
+to read the observed local outcome. The budget is a forecast based on the
+operator's provisional profile, not a spending limit; a new live observation
+is required immediately before each submission. Schedule activation does not
+prove a real run has been accepted or completed.

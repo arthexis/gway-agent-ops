@@ -157,6 +157,8 @@ def build_parser():
         action.add_argument("--json", action="store_true")
     for op in ("create", "status", "pause", "resume", "cancel"):
         sub.add_parser("daily-health-"+op).add_argument("--json", action="store_true")
+        sub.add_parser("self-select-"+op, help="Manage the owner-authorized self-select schedule").add_argument("--json", action="store_true")
+    sub.add_parser("self-select-preview", help="Preview self-selection without a claim or dispatch").add_argument("--json", action="store_true")
     return parser
 
 
@@ -256,6 +258,13 @@ def main(argv=None):
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
                     data["daily_health_error"] = "daily_health_tick_failed"
                 try:
+                    from .self_select_runtime import tick as self_select_tick
+                    selected = self_select_tick()
+                    if selected:
+                        data["self_select"] = selected
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError, sqlite3.Error):
+                    data["self_select_error"] = "self_select_tick_failed"
+                try:
                     from .pickup_runtime import tick as pickup_tick
                     data["pickup"] = pickup_tick()
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError, sqlite3.Error):
@@ -267,6 +276,33 @@ def main(argv=None):
                 "message": "Schedule operation failed or admission was denied"}), 1
         print(json_line(result) if args.json else
               (str(data) if code == 0 else "Schedule unavailable"))
+        return code
+    if args.command == "self-select-preview":
+        try:
+            from .self_select_runtime import preview as self_select_preview
+            result, code = envelope(args.command, "ok", data=self_select_preview()), 0
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, sqlite3.Error):
+            result, code = envelope(args.command, "error", error={"code": "self_select_preview_unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
+        return code
+    if args.command.startswith("self-select-"):
+        from . import self_select_store as selected
+        import socket
+        op = args.command.removeprefix("self-select-")
+        try:
+            if op != "status" and socket.gethostname() != "gway-001":
+                raise ValueError("wrong_node")
+            data = selected.inspect() if op == "status" else selected.create() if op == "create" else selected.transition(op)
+            if op == "status":
+                from .self_select_runtime import profile
+                try:
+                    data["calibration"] = profile()
+                except (OSError, ValueError, TypeError):
+                    data["calibration"] = None
+            result, code = envelope(args.command, "ok", data=data), 0
+        except (OSError, ValueError, RuntimeError, sqlite3.Error):
+            result, code = envelope(args.command, "error", error={"code": "self_select_unavailable"}), 1
+        print(json_line(result) if args.json else str(result))
         return code
     if args.command.startswith("daily-health-"):
         from . import daily_health_store as daily
@@ -604,7 +640,7 @@ def main(argv=None):
     if args.command == "issue":
         from .dispatch import Busy, Duplicate
         from .github_issues import IssueRejected
-        from .executor import ExecutionError, execute
+        from .executor import ExecutionError, execute, self_select_request
         try:
             workspace = os.environ.get("GWAY_AGENT_WORKSPACE_ROOT", "")
             if not workspace:
@@ -623,7 +659,8 @@ def main(argv=None):
         # Reporting failure is retained in the durable outbox; never rerun Codex.
         from .reporting import flush
         try:
-            flush()
+            if not self_select_request(args.ref, args.at):
+                flush()
         except (OSError, ValueError):
             pass
         if args.json:
