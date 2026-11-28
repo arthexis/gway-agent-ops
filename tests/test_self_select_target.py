@@ -23,9 +23,9 @@ PR = {"number": 9, "state": "open", "draft": False,
 
 
 def test_issue_and_pull_are_separate_fresh_targets():
-    issue = resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, ISSUE))
+    issue = resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, ISSUE, []))
     assert issue["kind"] == "issue" and issue["head_sha"] is None
-    pr = resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, {**ISSUE, "pull_request": {}}, PR))
+    pr = resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, {**ISSUE, "pull_request": {}}, PR, []))
     assert pr["kind"] == "pull_request" and pr["head_sha"] == "a" * 40
 
 
@@ -40,3 +40,11 @@ def test_recent_pr_or_hold_or_archived_fails_closed():
         resolve("arthexis/example#9", now=NOW, runner=runner_for({**REPO, "archived": True}, ISSUE))
     with pytest.raises(IssueRejected):
         resolve("other/example#9", now=NOW, runner=runner_for())
+
+
+def test_recently_updated_related_open_item_blocks_but_old_or_closed_does_not():
+    cross = {"event": "cross-referenced", "source": {"issue": {"state": "open", "updated_at": "2026-11-27T10:00:00Z"}}}
+    with pytest.raises(IssueRejected, match="target_ineligible"):
+        resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, ISSUE, [cross]))
+    cross["source"]["issue"]["state"] = "closed"
+    assert resolve("arthexis/example#9", now=NOW, runner=runner_for(REPO, ISSUE, [cross]))["number"] == 9

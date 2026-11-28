@@ -4,7 +4,7 @@ Unlike ordinary issue admission, this resolver can return PRs and does not
 trust the item author as an instruction source. Its caller must bind it to a
 durable self-select claim and revalidate immediately before launch.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
@@ -19,7 +19,7 @@ def resolve(ref, *, repo=None, now=None, runner=subprocess.run):
     if repository.split("/")[0].casefold() != "arthexis":
         raise IssueRejected("repository_not_owned")
 
-    def get(path):
+    def get(path, *, list_response=False):
         try:
             response = runner(["gh", "api", "--hostname", "github.com", path],
                 capture_output=True, text=True, timeout=20, check=False,
@@ -27,7 +27,7 @@ def resolve(ref, *, repo=None, now=None, runner=subprocess.run):
             if response.returncode:
                 raise ValueError("unavailable")
             data = json.loads(response.stdout)
-            if not isinstance(data, dict):
+            if not isinstance(data, list if list_response else dict):
                 raise ValueError("invalid")
             return data
         except (OSError, subprocess.TimeoutExpired, ValueError, TypeError) as exc:
@@ -67,6 +67,27 @@ def resolve(ref, *, repo=None, now=None, runner=subprocess.run):
                      "labels": [x["name"] for x in labels]}
         if select([candidate], now=now or datetime.now(timezone.utc)) is None:
             raise IssueRejected("target_ineligible")
+        # A stale issue may refer to an actively updated PR (or vice versa).
+        # Page the authoritative timeline and defer if a referenced open item
+        # has changed during the same three-hour quiet period.
+        current = now or datetime.now(timezone.utc)
+        from .pickup_policy import _instant
+        for page in range(1, 4):
+            events = get(f"repos/{repository}/issues/{number}/timeline?per_page=100&page={page}", list_response=True)
+            if len(events) > 100:
+                raise ValueError("invalid_timeline")
+            for event in events:
+                if not isinstance(event, dict):
+                    raise ValueError("invalid_timeline")
+                if event.get("event") != "cross-referenced":
+                    continue
+                source = event["source"]["issue"]
+                if source["state"] == "open" and _instant(source["updated_at"]) > current - timedelta(hours=3):
+                    raise IssueRejected("target_ineligible")
+            if len(events) < 100:
+                break
+        else:
+            raise IssueRejected("timeline_page_limit")
         return {**candidate, "title": issue["title"], "body": issue.get("body") or "",
                 "comments": issue["comments"], "head_sha": head,
                 "url": f"https://github.com/{repository}/{'pull' if kind == 'pull_request' else 'issues'}/{number}"}
